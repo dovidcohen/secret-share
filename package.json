@@ -1,0 +1,16 @@
+{
+  "name": "secret-share",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:web": "pnpm --filter @secret-share/web dev",
+    "dev:api": "pnpm --filter @secret-share/api dev",
+    "build": "pnpm --filter @secret-share/web build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "deploy": "pnpm --filter @secret-share/web build && pnpm --filter @secret-share/api deploy"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
