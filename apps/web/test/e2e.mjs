@@ -112,5 +112,40 @@ await browser.close();
   await blocked.close();
 }
 
+// --- Scenario D: direct-only mode — nothing uploaded, live transfer still works ---
+{
+  const b2 = await chromium.launch();
+  const ctx = await b2.newContext();
+  const pageA = await ctx.newPage();
+  await pageA.goto(BASE + "/");
+  await pageA.fill("textarea", SSH_KEY);
+  await pageA.check("input[type=checkbox]");
+  await pageA.click("button.primary");
+  const codeEl = pageA.locator(".code-display code").first();
+  await codeEl.waitFor({ timeout: 30_000 });
+  const code = (await codeEl.textContent()).trim();
+
+  // Nothing parked server-side: a claim on this mailbox must 404 (not 403/410).
+  const mailboxId = code.split("-").slice(0, 2).join("").toUpperCase();
+  const probe = await fetch(`${BASE}/api/drops/${mailboxId}/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ claimTag: "A".repeat(43) }),
+  });
+  check("D: nothing stored on server (claim 404)", probe.status === 404, `status ${probe.status}`);
+
+  const pageB = await ctx.newPage();
+  await pageB.goto(`${BASE}/r#${code}`);
+  const got = await expectSecret(pageB, "Transferred directly");
+  check("D: receiver got exact secret", got.secretOk);
+  check("D: transfer was live", got.viaOk, got.status);
+  await pageA
+    .locator(".status", { hasText: "Nothing ever touched the server" })
+    .waitFor({ timeout: 10_000 })
+    .then(() => check("D: sender confirms zero-upload delivery", true))
+    .catch(() => check("D: sender confirms zero-upload delivery", false));
+  await b2.close();
+}
+
 console.log(failures === 0 ? "\nALL E2E CHECKS PASSED" : `\n${failures} E2E CHECKS FAILED`);
 process.exit(failures === 0 ? 0 : 1);

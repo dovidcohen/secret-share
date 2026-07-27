@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Send } from "./pages/Send.js";
 import { Receive } from "./pages/Receive.js";
+import { Faq } from "./pages/Faq.js";
 
 function initialRoute(): { mode: "send" | "receive"; code: string } {
   const code = location.hash.slice(1);
@@ -12,7 +13,7 @@ function initialRoute(): { mode: "send" | "receive"; code: string } {
 
 export function App() {
   const [route] = useState(initialRoute);
-  const [mode, setMode] = useState(route.mode);
+  const [mode, setMode] = useState<"send" | "receive" | "faq">(route.mode);
 
   return (
     <main>
@@ -34,9 +35,14 @@ export function App() {
           >
             Receive
           </button>
+          <button className={mode === "faq" ? "tab active" : "tab"} onClick={() => setMode("faq")}>
+            How it works
+          </button>
         </nav>
       </header>
-      {mode === "send" ? <Send /> : <Receive initialCode={route.code} />}
+      {mode === "send" && <Send />}
+      {mode === "receive" && <Receive initialCode={route.code} />}
+      {mode === "faq" && <Faq />}
       <footer>
         <p className="muted">
           Keys are derived from the share code in your browser; the code never reaches

@@ -93,3 +93,8 @@ Notes:
   builds, subresource integrity, a CLI client.
 - Share links carry the code in the URL **fragment** (never sent over HTTP);
   `Referrer-Policy: no-referrer` and `Cache-Control: no-store` throughout.
+
+## License
+
+Source-available for inspection and security review. **All rights reserved** —
+this code may not be copied, modified, or redistributed without permission.

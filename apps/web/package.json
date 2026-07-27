@@ -13,10 +13,12 @@
   "dependencies": {
     "@secret-share/crypto": "workspace:*",
     "@secret-share/protocol": "workspace:*",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.4.0",

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import {
   DEFAULT_TTL_SECONDS,
   MAX_SECRET_BYTES,
@@ -31,7 +32,9 @@ export function Send() {
   const [live, setLive] = useState<LiveStatus>("parked");
   const [secret, setSecret] = useState("");
   const [ttl, setTtl] = useState(DEFAULT_TTL_SECONDS);
+  const [liveOnly, setLiveOnly] = useState(false);
   const [code, setCode] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
   const [expiresAt, setExpiresAt] = useState(0);
   const [error, setError] = useState("");
   const sessionRef = useRef<{ signaling?: Signaling; busy: boolean; delivered?: boolean }>({
@@ -44,41 +47,59 @@ export function Send() {
 
   useEffect(() => () => sessionRef.current.signaling?.close(), []);
 
+  useEffect(() => {
+    if (!code) return;
+    void QRCode.toDataURL(`${location.origin}/r#${code}`, {
+      margin: 1,
+      width: 480,
+      errorCorrectionLevel: "M",
+    }).then(setQrDataUrl);
+  }, [code]);
+
   async function share() {
     setPhase("sealing");
     setError("");
     try {
       const plaintext = utf8(secret);
-      // 409 means a 40-bit mailbox-id collision — regenerate and retry.
       let keys: DerivedKeys | null = null;
       let shareCode = "";
-      for (let attempt = 0; attempt < 3 && !keys; attempt++) {
+
+      if (liveOnly) {
+        // Direct-only: nothing is uploaded, not even ciphertext. The secret
+        // lives exclusively in this tab until it is handed over.
         const candidate = generateCode();
-        const candidateKeys = await deriveKeys(candidate);
-        try {
-          const exp = await parkDrop(candidateKeys, await encryptSecret(candidateKeys, plaintext), ttl);
-          setExpiresAt(exp);
-          keys = candidateKeys;
-          shareCode = candidate.code;
-        } catch (e) {
-          if (!(e instanceof DropExistsError)) throw e;
+        keys = await deriveKeys(candidate);
+        shareCode = candidate.code;
+      } else {
+        // 409 means a 40-bit mailbox-id collision — regenerate and retry.
+        for (let attempt = 0; attempt < 3 && !keys; attempt++) {
+          const candidate = generateCode();
+          const candidateKeys = await deriveKeys(candidate);
+          try {
+            const exp = await parkDrop(candidateKeys, await encryptSecret(candidateKeys, plaintext), ttl);
+            setExpiresAt(exp);
+            keys = candidateKeys;
+            shareCode = candidate.code;
+          } catch (e) {
+            if (!(e instanceof DropExistsError)) throw e;
+          }
         }
+        if (!keys) throw new Error("Could not allocate a mailbox, please retry");
       }
-      if (!keys) throw new Error("Could not allocate a mailbox, please retry");
 
       keysRef.current = keys;
       setCode(shareCode);
       setPhase("ready");
       setLive("parked");
-      void openLiveUpgrade(keys, plaintext);
+      void openLiveUpgrade(keys, plaintext, liveOnly);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPhase("error");
     }
   }
 
-  /** Stay on the signaling room; if the receiver shows up, upgrade to direct P2P. */
-  async function openLiveUpgrade(keys: DerivedKeys, plaintext: Uint8Array) {
+  /** Stay on the signaling room; if the receiver shows up, transfer directly. */
+  async function openLiveUpgrade(keys: DerivedKeys, plaintext: Uint8Array, directOnly: boolean) {
     try {
       const signaling = await Signaling.connect(keys.mailboxId, "sender");
       sessionRef.current.signaling = signaling;
@@ -88,28 +109,40 @@ export function Send() {
           // to the live path too, even for peers presenting the right code.
           if (sessionRef.current.delivered) return;
           setLive("peer-online");
-          void attemptLive(signaling, keys, plaintext);
+          void attemptLive(signaling, keys, plaintext, directOnly);
         } else if (msg.t === "peer-left") {
           setLive((s) => (s === "delivered" ? s : "parked"));
         }
       });
-    } catch {
-      // No live upgrade — the parked drop still covers delivery.
+    } catch (e) {
+      if (directOnly) {
+        setError("Could not reach the connection service — direct-only sharing needs it to find your receiver.");
+        setPhase("error");
+      }
+      // Otherwise: no live upgrade — the parked drop still covers delivery.
     }
   }
 
-  async function attemptLive(signaling: Signaling, keys: DerivedKeys, plaintext: Uint8Array) {
+  async function attemptLive(
+    signaling: Signaling,
+    keys: DerivedKeys,
+    plaintext: Uint8Array,
+    directOnly: boolean,
+  ) {
     if (sessionRef.current.busy) return;
     sessionRef.current.busy = true;
     setLive("transferring");
     try {
       await senderLiveTransfer(signaling, keys, plaintext);
       sessionRef.current.delivered = true;
-      signaling.send({ t: "delivered" });
-      await signaling.next((m) => m.t === "delivered-ok", 5000);
+      if (!directOnly) {
+        signaling.send({ t: "delivered" });
+        await signaling.next((m) => m.t === "delivered-ok", 5000);
+      }
       setLive("delivered");
     } catch {
-      // P2P failed (NAT, timeout, tab switch...) — receiver falls back to the drop.
+      // P2P failed (NAT, timeout, tab switch...). With a parked drop the
+      // receiver falls back automatically; in direct-only mode they can retry.
       setLive("parked");
     } finally {
       sessionRef.current.busy = false;
@@ -149,17 +182,28 @@ export function Send() {
           <span className={tooBig ? "danger" : "muted"}>
             {bytes.toLocaleString()} / {MAX_SECRET_BYTES.toLocaleString()} bytes
           </span>
-          <label className="muted">
-            Expires in{" "}
-            <select value={ttl} onChange={(e) => setTtl(Number(e.target.value))}>
-              {TTL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!liveOnly && (
+            <label className="muted">
+              Expires in{" "}
+              <select value={ttl} onChange={(e) => setTtl(Number(e.target.value))}>
+                {TTL_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
+        <label className="muted checkbox-row">
+          <input
+            type="checkbox"
+            checked={liveOnly}
+            onChange={(e) => setLiveOnly(e.target.checked)}
+          />{" "}
+          Direct transfer only — upload nothing, not even encrypted. Requires both of
+          you online at the same time; keep this tab open until delivered.
+        </label>
         <button
           className="primary"
           disabled={!secret || tooBig || phase === "sealing"}
@@ -203,27 +247,46 @@ export function Send() {
         <code className="small">{link}</code>
         <CopyButton text={link} label="Copy link" />
       </div>
+      {qrDataUrl && live !== "delivered" && (
+        <div className="qr">
+          <img src={qrDataUrl} alt={`QR code for ${link}`} />
+          <span className="muted">…or scan to receive on a phone</span>
+        </div>
+      )}
       <p className="muted">
         Read it over a call, or send the link — the part after <code>#</code> never
         reaches any server.
       </p>
       <p className={`status status-${live}`}>
-        {live === "parked" && (
-          <>
-            Encrypted copy parked — expires in <Countdown until={expiresAt} />. Keep this
-            tab open to hand it over directly when the receiver arrives.
-          </>
-        )}
+        {live === "parked" &&
+          (liveOnly ? (
+            <>
+              Nothing has been uploaded — the secret exists only in this tab. Keep it
+              open; the transfer starts the moment your receiver opens the link.
+            </>
+          ) : (
+            <>
+              Encrypted copy parked — expires in <Countdown until={expiresAt} />. Keep
+              this tab open to hand it over directly when the receiver arrives.
+            </>
+          ))}
         {live === "peer-online" && "Receiver is online — connecting directly…"}
         {live === "transferring" && "Receiver connected — transferring directly…"}
         {live === "delivered" &&
-          "Delivered directly, browser to browser. No copy remains on the server."}
+          (liveOnly
+            ? "Delivered directly, browser to browser. Nothing ever touched the server."
+            : "Delivered directly, browser to browser. No copy remains on the server.")}
       </p>
-      {live !== "delivered" && (
-        <button className="danger-outline" onClick={() => void revoke()}>
-          Destroy secret now
-        </button>
-      )}
+      {live !== "delivered" &&
+        (liveOnly ? (
+          <button className="danger-outline" onClick={() => location.reload()}>
+            Cancel — close this share
+          </button>
+        ) : (
+          <button className="danger-outline" onClick={() => void revoke()}>
+            Destroy secret now
+          </button>
+        ))}
     </section>
   );
 }
