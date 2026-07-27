@@ -136,7 +136,7 @@ export function Send() {
       await senderLiveTransfer(signaling, keys, plaintext);
       sessionRef.current.delivered = true;
       if (!directOnly) {
-        signaling.send({ t: "delivered" });
+        signaling.send({ t: "delivered", senderTag: keys.senderTag });
         await signaling.next((m) => m.t === "delivered-ok", 5000);
       }
       setLive("delivered");

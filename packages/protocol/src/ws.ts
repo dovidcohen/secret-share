@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TagSchema } from "./rest.js";
 
 export const RoleSchema = z.enum(["sender", "receiver"]);
 export type Role = z.infer<typeof RoleSchema>;
@@ -23,8 +24,10 @@ export type SignalPayload = z.infer<typeof SignalPayloadSchema>;
 // client -> server
 export const ClientMessageSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("signal"), payload: SignalPayloadSchema }),
-  // sender only: live transfer confirmed, delete the parked drop
-  z.object({ t: z.literal("delivered") }),
+  // Live transfer confirmed -> delete the parked drop. Destructive, so it must
+  // prove knowledge of the sender tag; the socket's role alone is spoofable by
+  // anyone who learns the mailbox id.
+  z.object({ t: z.literal("delivered"), senderTag: TagSchema }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -35,6 +38,8 @@ export const ServerMessageSchema = z.discriminatedUnion("t", [
     role: RoleSchema,
     peerPresent: z.boolean(),
     dropAvailable: z.boolean(),
+    /** Capability for POST /api/turn — TURN minting is tied to a live session. */
+    turnToken: z.string().length(22).regex(/^[A-Za-z0-9_-]+$/),
   }),
   z.object({ t: z.literal("peer-joined") }),
   z.object({ t: z.literal("peer-left") }),

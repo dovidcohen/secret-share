@@ -106,11 +106,12 @@ const open = (c) => new Promise((res, rej) => {
 {
   const id = randomMailboxId();
   const claimTag = randomBytes(32).toString("base64url");
+  const senderTag = randomBytes(32).toString("base64url");
   const h = (t) => createHash("sha256").update(Buffer.from(t, "base64url")).digest("base64url");
   const create = await fetch(`${HTTP}/api/drops/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ claimTagHash: h(claimTag), senderTagHash: h(randomBytes(32).toString("base64url")), ciphertext: "AQIDBAUG", ttlSeconds: 3600 }),
+    body: JSON.stringify({ claimTagHash: h(claimTag), senderTagHash: h(senderTag), ciphertext: "AQIDBAUG", ttlSeconds: 3600 }),
   });
   check("drop created", create.status === 201);
 
@@ -118,16 +119,23 @@ const open = (c) => new Promise((res, rej) => {
   await open(receiver);
   const j = await receiver.next((m) => m.t === "joined");
   check("receiver sees dropAvailable", j?.dropAvailable === true, JSON.stringify(j));
+  check("joined carries a turnToken", typeof j?.turnToken === "string" && j.turnToken.length === 22);
 
-  // receiver may not delete the drop
-  receiver.send({ t: "delivered" });
+  // receiver may not delete the drop, even with the right tag
+  receiver.send({ t: "delivered", senderTag });
   const notAllowed = await receiver.next((m) => m.t === "error");
   check("receiver cannot send delivered", notAllowed?.code === "NOT_ALLOWED");
 
   const sender = new Client(id, "sender");
   await open(sender);
   await sender.next((m) => m.t === "joined");
-  sender.send({ t: "delivered" });
+
+  // sender role without knowledge of the sender tag is refused
+  sender.send({ t: "delivered", senderTag: randomBytes(32).toString("base64url") });
+  const badTag = await sender.next((m) => m.t === "error");
+  check("delivered with wrong tag refused", badTag?.code === "NOT_ALLOWED");
+
+  sender.send({ t: "delivered", senderTag });
   check("delivered acked", !!(await sender.next((m) => m.t === "delivered-ok")));
 
   const claim = await fetch(`${HTTP}/api/drops/${id}/claim`, {

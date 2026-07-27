@@ -86,6 +86,9 @@ export class MailboxDO extends DurableObject<Env> {
     if (pathname.startsWith("/ws/")) {
       return this.handleUpgrade(request, url);
     }
+    if (pathname === "/internal/turn-verify" && request.method === "POST") {
+      return this.handleTurnVerify(request);
+    }
     if (pathname.endsWith("/claim") && request.method === "POST") {
       return this.handleClaim(request);
     }
@@ -208,6 +211,23 @@ export class MailboxDO extends DurableObject<Env> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return json(426, { error: "UPGRADE_REQUIRED" });
     }
+    // Browsers always send Origin on WS upgrades; reject cross-site pages
+    // driving our signaling. Absent Origin (non-browser clients) is allowed —
+    // this is CSRF-style protection, not authentication.
+    const origin = request.headers.get("Origin");
+    if (origin) {
+      let originHost: string | null = null;
+      try {
+        originHost = new URL(origin).hostname;
+      } catch {
+        return json(403, { error: "BAD_ORIGIN" });
+      }
+      // Host comparison (not full origin): `wrangler dev` rewrites both the
+      // request URL and the Origin header to the route host over http.
+      const sameHost = originHost === url.hostname;
+      const isLocalDev = originHost === "localhost" || originHost === "127.0.0.1";
+      if (!sameHost && !isLocalDev) return json(403, { error: "BAD_ORIGIN" });
+    }
     const role = RoleSchema.safeParse(url.searchParams.get("role"));
     if (!role.success) return json(400, { error: "BAD_REQUEST" });
 
@@ -229,10 +249,41 @@ export class MailboxDO extends DurableObject<Env> {
       role: role.data,
       peerPresent: this.ctx.getWebSockets(peerRole).length > 0,
       dropAvailable: !!drop && drop.expiresAt > Date.now(),
+      turnToken: await this.issueTurnToken(),
     });
     this.broadcast(peerRole, { t: "peer-joined" });
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * TURN capability tokens: minting relay credentials requires an open
+   * signaling session on a real mailbox, so /api/turn can't be farmed as a
+   * free generic TURN service. Valid for the plausible life of a session.
+   */
+  private async issueTurnToken(): Promise<string> {
+    const tokens =
+      (await this.ctx.storage.get<Record<string, number>>("turnTokens")) ?? {};
+    const now = Date.now();
+    for (const [t, exp] of Object.entries(tokens)) {
+      if (exp <= now) delete tokens[t];
+    }
+    const raw = new Uint8Array(16);
+    crypto.getRandomValues(raw);
+    const token = toB64url(raw);
+    tokens[token] = now + 24 * 3600 * 1000;
+    await this.ctx.storage.put("turnTokens", tokens);
+    return token;
+  }
+
+  private async handleTurnVerify(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as { token?: string } | null;
+    if (!body?.token) return json(400, { error: "BAD_REQUEST" });
+    const tokens =
+      (await this.ctx.storage.get<Record<string, number>>("turnTokens")) ?? {};
+    const exp = tokens[body.token];
+    if (!exp || exp <= Date.now()) return json(403, { error: "BAD_TOKEN" });
+    return new Response(null, { status: 204 });
   }
 
   override async webSocketMessage(
@@ -266,14 +317,25 @@ export class MailboxDO extends DurableObject<Env> {
       case "signal":
         this.relaySignal(state.role, msg.data.payload);
         break;
-      case "delivered":
+      case "delivered": {
+        // Destructive: requires the sender tag, not just a socket claiming the
+        // sender role (roles are unauthenticated by design).
         if (state.role !== "sender") {
           this.send(ws, { t: "error", code: "NOT_ALLOWED" });
           return;
         }
-        await this.burnDrop();
+        const drop = await this.ctx.storage.get<DropRecord>("drop");
+        if (drop) {
+          const presented = await sha256B64url(msg.data.senderTag);
+          if (!constantTimeEqual(fromB64url(presented), fromB64url(drop.senderTagHash))) {
+            this.send(ws, { t: "error", code: "NOT_ALLOWED" });
+            return;
+          }
+          await this.burnDrop();
+        }
         this.send(ws, { t: "delivered-ok" });
         break;
+      }
     }
   }
 

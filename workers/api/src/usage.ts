@@ -16,21 +16,23 @@ export async function checkUsage(env: Env): Promise<void> {
       Authorization: `Bearer ${env.CF_ANALYTICS_TOKEN}`,
       "Content-Type": "application/json",
     },
+    // Values are inlined (both are our own config/clock, not user input) to
+    // avoid GraphQL scalar-name mismatches in variable declarations.
     body: JSON.stringify({
-      query: `query($account: String!, $date: Date!) {
+      query: `{
         viewer {
-          accounts(filter: { accountTag: $account }) {
-            workersInvocationsAdaptive(limit: 1000, filter: { date: $date }) {
+          accounts(filter: { accountTag: "${env.CF_ACCOUNT_ID}" }) {
+            workersInvocationsAdaptive(limit: 1000, filter: { date: "${today}" }) {
               sum { requests }
             }
           }
         }
       }`,
-      variables: { account: env.CF_ACCOUNT_ID, date: today },
     }),
   });
   if (!res.ok) {
-    console.log(`usage-alert: analytics query failed (${res.status})`);
+    const detail = (await res.text()).slice(0, 300);
+    console.log(`usage-alert: analytics query failed (${res.status}): ${detail}`);
     return;
   }
 
@@ -42,8 +44,13 @@ export async function checkUsage(env: Env): Promise<void> {
         }>;
       };
     };
+    errors?: Array<{ message?: string }>;
   }
   const body = (await res.json()) as GqlResponse;
+  if (body.errors?.length) {
+    console.log(`usage-alert: graphql error: ${body.errors[0]?.message ?? "unknown"}`);
+    return;
+  }
   const buckets = body.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? [];
   const requests = buckets.reduce((n, b) => n + (b.sum?.requests ?? 0), 0);
   const threshold = Number(env.USAGE_ALERT_THRESHOLD ?? "80000");

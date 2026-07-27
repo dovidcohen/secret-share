@@ -6,6 +6,11 @@ import { Faq } from "./pages/Faq.js";
 function initialRoute(): { mode: "send" | "receive"; code: string } {
   const code = location.hash.slice(1);
   if (location.pathname.startsWith("/r") || code.length > 0) {
+    // Take the code into memory and scrub it from the address bar so the full
+    // share code doesn't persist in (possibly synced) browser history.
+    if (code.length > 0) {
+      history.replaceState(null, "", "/r");
+    }
     return { mode: "receive", code: decodeURIComponent(code) };
   }
   return { mode: "send", code: "" };

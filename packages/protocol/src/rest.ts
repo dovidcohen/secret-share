@@ -62,7 +62,17 @@ export const ApiErrorSchema = z.object({
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
-/** GET /api/turn — short-lived ICE servers (empty/404 when TURN is not configured). */
+/** POST /api/turn — requires a turnToken issued on the signaling socket. */
+export const TurnRequestSchema = z.object({
+  mailboxId: MailboxIdSchema,
+  turnToken: z
+    .string()
+    .length(22)
+    .regex(/^[A-Za-z0-9_-]+$/),
+});
+export type TurnRequest = z.infer<typeof TurnRequestSchema>;
+
+/** TURN response — short-lived ICE servers (404 when TURN is not configured). */
 export const IceServerSchema = z.object({
   urls: z.union([z.string(), z.array(z.string())]),
   username: z.string().optional(),

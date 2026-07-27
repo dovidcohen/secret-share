@@ -13,12 +13,15 @@ export class Signaling {
   private handlers = new Set<(msg: ServerMessage) => void>();
   private closeHandlers = new Set<(code: number) => void>();
   private pingTimer: ReturnType<typeof setInterval> | undefined;
+  /** Capability for POST /api/turn, issued by the server in `joined`. */
+  turnToken: string | null = null;
 
   private constructor(private ws: WebSocket) {
     ws.addEventListener("message", (e) => {
       if (typeof e.data !== "string" || e.data === '{"t":"pong"}') return;
       const parsed = ServerMessageSchema.safeParse(JSON.parse(e.data));
       if (!parsed.success) return;
+      if (parsed.data.t === "joined") this.turnToken = parsed.data.turnToken;
       for (const h of [...this.handlers]) h(parsed.data);
     });
     ws.addEventListener("close", (e) => {

@@ -169,11 +169,34 @@ describe("websocket signaling", () => {
     expect((await connect(id, "admin")).status).toBe(400);
     expect((await SELF.fetch(`https://x/ws/${id}?role=sender`)).status).toBe(426);
   });
+
+  it("rejects cross-site browser origins", async () => {
+    const id = mailboxId();
+    const res = await SELF.fetch(`https://x/ws/${id}?role=sender`, {
+      headers: { Upgrade: "websocket", Origin: "https://evil.example" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("issues a turn token in joined", async () => {
+    const id = mailboxId();
+    const res = await connect(id, "sender");
+    const ws = res.webSocket!;
+    ws.accept();
+    const c = collect(ws);
+    const joined = await c.next("joined");
+    expect(joined.turnToken).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    ws.close();
+  });
 });
 
 describe("turn credentials", () => {
   it("reports not-configured when secrets are absent", async () => {
-    const res = await SELF.fetch("https://x/api/turn");
+    const res = await SELF.fetch("https://x/api/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mailboxId: "XKQ2M7PT", turnToken: "A".repeat(22) }),
+    });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toBe("TURN_NOT_CONFIGURED");
   });

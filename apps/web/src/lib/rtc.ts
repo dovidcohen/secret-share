@@ -30,15 +30,21 @@ const STUN_ONLY: RTCIceServer[] = [
 let iceCache: { servers: RTCIceServer[]; freshUntil: number } | null = null;
 
 /**
- * STUN + short-lived TURN credentials from /api/turn. TURN covers the ~10-15%
- * of peer pairs that can't hole-punch; the relay sees only DTLS ciphertext and
- * the payload is E2E-encrypted on top, so nothing is revealed to it. Falls
- * back to STUN-only when TURN isn't configured or the mint fails.
+ * STUN + short-lived TURN credentials from /api/turn, authorized by the
+ * turnToken issued on the signaling session. TURN covers the ~10-15% of peer
+ * pairs that can't hole-punch; the relay sees only DTLS ciphertext and the
+ * payload is E2E-encrypted on top, so nothing is revealed to it. Falls back
+ * to STUN-only when TURN isn't configured or the mint fails.
  */
-async function getIceServers(): Promise<RTCIceServer[]> {
+async function getIceServers(mailboxId: string, turnToken: string | null): Promise<RTCIceServer[]> {
   if (iceCache && iceCache.freshUntil > Date.now()) return iceCache.servers;
+  if (!turnToken) return STUN_ONLY;
   try {
-    const res = await fetch("/api/turn");
+    const res = await fetch("/api/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mailboxId, turnToken }),
+    });
     if (!res.ok) return STUN_ONLY;
     const parsed = TurnResponseSchema.safeParse(await res.json());
     if (!parsed.success) return STUN_ONLY;
@@ -244,7 +250,9 @@ export async function senderLiveTransfer(
   plaintext: Uint8Array,
   timeoutMs: number = LIVE_TIMEOUT_MS,
 ): Promise<void> {
-  const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
+  const pc = new RTCPeerConnection({
+    iceServers: await getIceServers(keys.mailboxId, signaling.turnToken),
+  });
   const dc = pc.createDataChannel("secret", { ordered: true });
   dc.binaryType = "arraybuffer";
   const reader = new FrameReader(dc);
@@ -306,7 +314,9 @@ export async function receiverLiveTransfer(
   offerSdp: string,
   timeoutMs: number = LIVE_TIMEOUT_MS,
 ): Promise<Uint8Array> {
-  const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
+  const pc = new RTCPeerConnection({
+    iceServers: await getIceServers(keys.mailboxId, signaling.turnToken),
+  });
   const unsubscribe = signaling.on((msg) => {
     if (msg.t !== "signal" || msg.payload.kind !== "ice") return;
     void pc

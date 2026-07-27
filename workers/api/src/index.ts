@@ -1,4 +1,4 @@
-import { MAILBOX_ID_REGEX } from "@secret-share/protocol";
+import { MAILBOX_ID_REGEX, TurnRequestSchema } from "@secret-share/protocol";
 import { checkUsage } from "./usage.js";
 
 export { MailboxDO } from "./mailbox.js";
@@ -12,6 +12,7 @@ const SECURITY_HEADERS: Record<string, string> = {
     "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; " +
     "img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; " +
     "object-src 'none'; frame-ancestors 'none'",
+  "Strict-Transport-Security": "max-age=31536000",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
@@ -23,23 +24,42 @@ function mailboxIdFor(pathname: string): string | null {
   return id && MAILBOX_ID_REGEX.test(id) ? id : null;
 }
 
-/** Drop creation, room joins, and TURN minting are IP-limited; claims per-mailbox. */
+/** Drop creation and room joins share the general IP limiter; claims are per-mailbox. */
 function isRateLimited(request: Request, pathname: string): boolean {
   return (
-    (request.method === "PUT" && DROP_ROUTE.test(pathname)) ||
-    WS_ROUTE.test(pathname) ||
-    pathname === "/api/turn"
+    (request.method === "PUT" && DROP_ROUTE.test(pathname)) || WS_ROUTE.test(pathname)
   );
 }
 
 /**
- * Mints short-lived TURN credentials from Cloudflare Realtime. The relay only
- * ever carries DTLS ciphertext (the payload is additionally end-to-end
- * encrypted under the session key), so TURN preserves the zero-knowledge model.
+ * Mints short-lived TURN credentials from Cloudflare Realtime. Gated on a
+ * turnToken issued over an open signaling session (verified by the mailbox DO)
+ * plus a dedicated stricter IP limiter, so this can't be farmed as a free
+ * generic relay. The relay only ever carries DTLS ciphertext (the payload is
+ * additionally end-to-end encrypted), so TURN preserves the zero-knowledge model.
  */
-async function mintTurnCredentials(env: Env): Promise<Response> {
+async function mintTurnCredentials(request: Request, env: Env): Promise<Response> {
   if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) {
     return Response.json({ error: "TURN_NOT_CONFIGURED" }, { status: 404 });
+  }
+
+  if (env.TURN_LIMITER) {
+    const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+    const { success } = await env.TURN_LIMITER.limit({ key: ip });
+    if (!success) return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
+  }
+
+  const body = TurnRequestSchema.safeParse(await request.json().catch(() => null));
+  if (!body.success) return Response.json({ error: "BAD_REQUEST" }, { status: 400 });
+
+  const stub = env.MAILBOX.get(env.MAILBOX.idFromName(body.data.mailboxId));
+  const verify = await stub.fetch("https://mailbox/internal/turn-verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: body.data.turnToken }),
+  });
+  if (verify.status !== 204) {
+    return Response.json({ error: "BAD_TOKEN" }, { status: 403 });
   }
   const upstream = await fetch(
     `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`,
@@ -68,6 +88,15 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
 
+    // Plaintext HTTP must never serve the app: an on-path attacker could swap
+    // the JS or read secrets pre-encryption. 308 preserves method for API calls.
+    // (`wrangler dev` rewrites request URLs to the route host over http, so
+    // local dev is exempted via .dev.vars rather than by hostname.)
+    if (url.protocol === "http:" && env.ENVIRONMENT !== "dev") {
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 308);
+    }
+
     // Canonical host: www duplicates the apex in search indexes otherwise.
     // Fragments (where share codes live) survive redirects client-side.
     if (url.hostname.startsWith("www.")) {
@@ -84,8 +113,8 @@ export default {
         }
       }
 
-      if (pathname === "/api/turn" && request.method === "GET") {
-        return mintTurnCredentials(env);
+      if (pathname === "/api/turn" && request.method === "POST") {
+        return mintTurnCredentials(request, env);
       }
 
       const mailboxId = mailboxIdFor(pathname);

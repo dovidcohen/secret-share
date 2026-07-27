@@ -24,6 +24,12 @@
         "type": "ratelimit",
         "namespace_id": "1001",
         "simple": { "limit": 30, "period": 60 }
+      },
+      {
+        "name": "TURN_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1002",
+        "simple": { "limit": 10, "period": 60 }
       }
     ]
   },
@@ -31,11 +37,11 @@
     "bindings": [{ "name": "MAILBOX", "class_name": "MailboxDO" }]
   },
   // Usage alert: check request volume against the free-tier daily cap.
-  "triggers": { "crons": ["7 */6 * * *"] },
+  "triggers": { "crons": ["*/5 * * * *"] },
   "send_email": [{ "name": "ALERT_EMAIL", "destination_address": "dovidcohen1@gmail.com" }],
   "vars": {
     "CF_ACCOUNT_ID": "b1c0bee581e5bd9e6b843bfb9cd1c587",
-    "USAGE_ALERT_THRESHOLD": "80000",
+    "USAGE_ALERT_THRESHOLD": "1",
     "ALERT_FROM": "alerts@shareasecret.io",
     "ALERT_TO": "dovidcohen1@gmail.com"
   },
