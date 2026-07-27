@@ -1,5 +1,7 @@
 # Secret Share
 
+**Live at [shareasecret.io](https://shareasecret.io)**
+
 Pass a small secret (SSH key, API token, password — up to 10 KB) to exactly one
 person. End-to-end encrypted, transferred **directly browser-to-browser** when both
 people are online, parked as an **encrypted dead drop** when they're not. Read-once,
