@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Send an API Key Securely to a Contractor or Teammate</title>
+  <meta name="description" content="Scope it, send it end-to-end encrypted with a one-time link, and know how you'll rotate it. A practical checklist for handing out API keys and tokens." />
+  <link rel="canonical" href="https://shareasecret.io/guides/send-api-key-securely" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/guides.css" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="How to Send an API Key Securely to a Contractor or Teammate" />
+  <meta property="og:description" content="Scope it, send it end-to-end encrypted with a one-time link, and know how you'll rotate it." />
+  <meta property="og:url" content="https://shareasecret.io/guides/send-api-key-securely" />
+  <meta property="og:image" content="https://shareasecret.io/og.png" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article",
+   "headline":"How to Send an API Key Securely to a Contractor or Teammate",
+   "description":"Scope it, send it end-to-end encrypted with a one-time link, and know how you'll rotate it.",
+   "author":{"@type":"Organization","name":"Secret Share"},
+   "publisher":{"@type":"Organization","name":"Secret Share","url":"https://shareasecret.io/"},
+   "mainEntityOfPage":"https://shareasecret.io/guides/send-api-key-securely"}
+  </script>
+</head>
+<body>
+  <header class="site">
+    <a class="brand" href="/"><span>⧉</span> Secret Share</a>
+    <a class="cta-button" href="/">Share a secret</a>
+  </header>
+  <main>
+    <article>
+      <h1>How to send an API key securely</h1>
+      <p class="byline">The transfer is step two. Scoping is step one, and rotation is step three.</p>
+
+      <h2>1. Scope before you send</h2>
+      <p>
+        The best protection isn't in how you transmit a key — it's in what the key can
+        do if it leaks anyway. Before sending anything to a contractor or teammate:
+      </p>
+      <ul>
+        <li><strong>Create a key just for them</strong> rather than sharing yours — most platforms (Stripe, AWS, OpenAI, GitHub) support multiple keys or per-user tokens. A dedicated key can be revoked without breaking anything else, and audit logs show whose key did what.</li>
+        <li><strong>Grant the minimum</strong> — restricted scopes, read-only where possible, sandbox/test mode until production access is actually needed.</li>
+        <li><strong>Set an expiry at the provider</strong> if it supports one (GitHub fine-grained tokens, AWS temporary credentials).</li>
+      </ul>
+
+      <h2>2. Transfer it without leaving copies</h2>
+      <p>
+        Email and chat retain everything indefinitely — the key ends up in message
+        history, notification previews, backups, and every synced device. GitHub's
+        secret-scanning exists precisely because keys pasted into the wrong place are
+        a top breach vector. Use a transfer that's end-to-end encrypted and read-once:
+      </p>
+      <ol class="steps">
+        <li>Open <a href="/">shareasecret.io</a> — no account, nothing to install.</li>
+        <li>Paste the key (and only the key — send context like "this is the staging Stripe key" separately, so the secret and its label never travel together).</li>
+        <li>Send the one-time link, or read the short code over a call. Encryption happens in your browser; the server stores only ciphertext, destroyed on first read.</li>
+        <li>Ask them to confirm it works, e.g. a quick <code>curl</code> against the API. The link is now dead — nothing left to leak.</li>
+      </ol>
+
+      <div class="callout">
+        <strong>If it ever touched the wrong place</strong> — pasted into the wrong
+        Slack channel, committed to a repo, emailed by mistake — treat it as burned and
+        rotate immediately. Deleting a message does not delete a secret from history,
+        caches, or backups.
+      </div>
+
+      <h2>3. Plan the rotation</h2>
+      <ul>
+        <li>Note when the engagement ends and revoke the key that day — calendar it when you create it.</li>
+        <li>Prefer short-lived keys re-issued as needed over long-lived ones "to be safe."</li>
+        <li>When someone leaves, rotate anything they had, even if you trust them — their machines and accounts remain attack surface.</li>
+      </ul>
+
+      <div class="cta">
+        <p><strong>Ready to hand over the key?</strong> One-time, end-to-end encrypted, gone after one read.</p>
+        <a class="cta-button" href="/">Share a secret →</a>
+      </div>
+    </article>
+  </main>
+  <footer class="site">
+    <ul>
+      <li><a href="/">Secret Share</a></li>
+      <li><a href="/guides/send-ssh-key-securely">Send an SSH key securely</a></li>
+      <li><a href="/guides/share-password-one-time-link">One-time password links</a></li>
+      <li><a href="/compare/secret-sharing-tools">Compare secret-sharing tools</a></li>
+      <li><a href="https://github.com/dovidcohen/secret-share">Source code</a></li>
+    </ul>
+  </footer>
+</body>
+</html>

@@ -53,6 +53,15 @@ export function App() {
           Keys are derived from the share code in your browser; the code never reaches
           the server. Secrets are read-once and expire automatically.
         </p>
+        <p className="muted footer-links">
+          <a href="/guides/send-ssh-key-securely">Send an SSH key securely</a>
+          {" · "}
+          <a href="/guides/share-password-one-time-link">One-time password links</a>
+          {" · "}
+          <a href="/guides/send-api-key-securely">Send API keys</a>
+          {" · "}
+          <a href="/compare/secret-sharing-tools">Compare tools</a>
+        </p>
       </footer>
     </main>
   );

@@ -132,6 +132,7 @@ button.danger-outline { color: var(--danger); border-color: var(--danger); backg
 .faq a { color: var(--accent); }
 
 footer { margin-top: 1.5rem; text-align: center; }
+.footer-links a { color: var(--accent); text-decoration: none; }
 
 /* Touch devices: 44px minimum tap targets (Apple HIG). */
 @media (pointer: coarse) {
