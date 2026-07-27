@@ -4,7 +4,92 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="no-referrer" />
-    <title>Secret Share — end-to-end encrypted secret transfer</title>
+    <title>Secret Share — one-time, end-to-end encrypted secret sharing</title>
+    <meta
+      name="description"
+      content="Share passwords, SSH keys, and API tokens securely. Encrypted in your browser, sent peer-to-peer when possible, destroyed after one read. No account needed."
+    />
+    <link rel="canonical" href="https://shareasecret.io/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#2563eb" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Secret Share" />
+    <meta property="og:title" content="Secret Share — one-time, end-to-end encrypted secret sharing" />
+    <meta
+      property="og:description"
+      content="Pass a password, SSH key, or API token to exactly one person. End-to-end encrypted, direct browser-to-browser when possible, gone after one read."
+    />
+    <meta property="og:url" content="https://shareasecret.io/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Secret Share — one-time, end-to-end encrypted secret sharing" />
+    <meta
+      name="twitter:description"
+      content="Pass a password, SSH key, or API token to exactly one person. End-to-end encrypted, gone after one read."
+    />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "name": "Secret Share",
+          "url": "https://shareasecret.io/",
+          "applicationCategory": "SecurityApplication",
+          "operatingSystem": "Any",
+          "browserRequirements": "Requires JavaScript",
+          "description": "One-time, end-to-end encrypted sharing of passwords, SSH keys, and API tokens. Encrypted in the browser, transferred peer-to-peer when both parties are online, destroyed after one read.",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What happens when I share a secret?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Your browser generates a share code, derives an encryption key from it, and encrypts your secret before anything leaves your device. The encrypted copy is parked on the server so the receiver can pick it up any time. If both people are online, the secret instead travels directly between the two browsers and the parked copy is deleted immediately."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What does the server see?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Only ciphertext, a random mailbox id used for routing, and hashed authentication tags. The server never sees the secret, the code words, or the encryption keys. Share links keep the code in the URL fragment, which browsers do not send to servers."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can the secret be read twice?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "No. The encrypted copy is destroyed the moment it is claimed or delivered directly, five wrong code attempts burn it permanently, and it expires automatically after 24 hours by default (up to 7 days)."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can the operators of the service read my secrets?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Not by design: keys are derived and encryption happens entirely in the browser, and the server stores only ciphertext. The source code is public for inspection. A direct-transfer-only mode uploads nothing at all, not even ciphertext."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How big can a secret be?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Up to 10 KB of text: SSH keys, API tokens, passwords, connection strings, or recovery codes, shared from one sender to exactly one receiver."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

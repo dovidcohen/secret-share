@@ -67,6 +67,13 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
 
+    // Canonical host: www duplicates the apex in search indexes otherwise.
+    // Fragments (where share codes live) survive redirects client-side.
+    if (url.hostname.startsWith("www.")) {
+      url.hostname = url.hostname.slice(4);
+      return Response.redirect(url.toString(), 301);
+    }
+
     if (pathname.startsWith("/api/") || pathname.startsWith("/ws/")) {
       if (env.CREATE_LIMITER && isRateLimited(request, pathname)) {
         const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
