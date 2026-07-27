@@ -13,6 +13,13 @@ declare global {
     /** Cloudflare Realtime TURN key (secrets); absent -> STUN-only operation. */
     TURN_KEY_ID?: string;
     TURN_KEY_API_TOKEN?: string;
+    /** Usage alerting (cron): analytics token + account id secrets, email binding. */
+    CF_ANALYTICS_TOKEN?: string;
+    CF_ACCOUNT_ID?: string;
+    ALERT_EMAIL: SendEmail;
+    USAGE_ALERT_THRESHOLD?: string;
+    ALERT_FROM: string;
+    ALERT_TO: string;
   }
 }
 

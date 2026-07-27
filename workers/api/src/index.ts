@@ -1,4 +1,5 @@
 import { MAILBOX_ID_REGEX } from "@secret-share/protocol";
+import { checkUsage } from "./usage.js";
 
 export { MailboxDO } from "./mailbox.js";
 
@@ -101,5 +102,9 @@ export default {
     const hardened = new Response(res.body, res);
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) hardened.headers.set(k, v);
     return hardened;
+  },
+
+  async scheduled(_controller, env, ctx): Promise<void> {
+    ctx.waitUntil(checkUsage(env));
   },
 } satisfies ExportedHandler<Env>;

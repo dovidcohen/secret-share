@@ -30,6 +30,14 @@
   "durable_objects": {
     "bindings": [{ "name": "MAILBOX", "class_name": "MailboxDO" }]
   },
+  // Usage alert: check request volume against the free-tier daily cap.
+  "triggers": { "crons": ["7 */6 * * *"] },
+  "send_email": [{ "name": "ALERT_EMAIL", "destination_address": "dovidcohen1@gmail.com" }],
+  "vars": {
+    "USAGE_ALERT_THRESHOLD": "80000",
+    "ALERT_FROM": "alerts@shareasecret.io",
+    "ALERT_TO": "dovidcohen1@gmail.com"
+  },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MailboxDO"] }],
   "observability": { "enabled": true }
 }
