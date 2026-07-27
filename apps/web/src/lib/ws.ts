@@ -22,6 +22,9 @@ export class Signaling {
       const parsed = ServerMessageSchema.safeParse(JSON.parse(e.data));
       if (!parsed.success) return;
       if (parsed.data.t === "joined") this.turnToken = parsed.data.turnToken;
+      if (parsed.data.t === "peer-joined" && parsed.data.turnToken) {
+        this.turnToken = parsed.data.turnToken;
+      }
       for (const h of [...this.handlers]) h(parsed.data);
     });
     ws.addEventListener("close", (e) => {

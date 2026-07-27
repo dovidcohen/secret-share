@@ -41,7 +41,16 @@ export const ServerMessageSchema = z.discriminatedUnion("t", [
     /** Capability for POST /api/turn — TURN minting is tied to a live session. */
     turnToken: z.string().length(22).regex(/^[A-Za-z0-9_-]+$/),
   }),
-  z.object({ t: z.literal("peer-joined") }),
+  z.object({
+    t: z.literal("peer-joined"),
+    /** Fresh TURN capability — tokens are short-lived and single-use, and a
+     * parked sender may have joined hours ago. */
+    turnToken: z
+      .string()
+      .length(22)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
+  }),
   z.object({ t: z.literal("peer-left") }),
   z.object({ t: z.literal("signal"), payload: SignalPayloadSchema }),
   z.object({ t: z.literal("delivered-ok") }),

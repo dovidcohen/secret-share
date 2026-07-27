@@ -225,7 +225,11 @@ export class MailboxDO extends DurableObject<Env> {
       // Host comparison (not full origin): `wrangler dev` rewrites both the
       // request URL and the Origin header to the route host over http.
       const sameHost = originHost === url.hostname;
-      const isLocalDev = originHost === "localhost" || originHost === "127.0.0.1";
+      // localhost is only trusted under `wrangler dev` — in production a
+      // malicious local process must not get a pass.
+      const isLocalDev =
+        this.env.ENVIRONMENT === "dev" &&
+        (originHost === "localhost" || originHost === "127.0.0.1");
       if (!sameHost && !isLocalDev) return json(403, { error: "BAD_ORIGIN" });
     }
     const role = RoleSchema.safeParse(url.searchParams.get("role"));
@@ -251,27 +255,37 @@ export class MailboxDO extends DurableObject<Env> {
       dropAvailable: !!drop && drop.expiresAt > Date.now(),
       turnToken: await this.issueTurnToken(),
     });
-    this.broadcast(peerRole, { t: "peer-joined" });
+    // Fresh token per peer-joined: a parked sender's original token is long
+    // expired by the time a receiver finally shows up.
+    for (const peer of this.ctx.getWebSockets(peerRole)) {
+      this.send(peer, { t: "peer-joined", turnToken: await this.issueTurnToken() });
+    }
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  private static readonly TURN_TOKEN_TTL_MS = 10 * 60 * 1000;
+  private static readonly TURN_TOKEN_MAX_OUTSTANDING = 8;
+
   /**
    * TURN capability tokens: minting relay credentials requires an open
-   * signaling session on a real mailbox, so /api/turn can't be farmed as a
-   * free generic TURN service. Valid for the plausible life of a session.
+   * signaling session, so /api/turn can't be farmed as a free generic TURN
+   * service. Short-lived, single-use, and capped per mailbox.
    */
   private async issueTurnToken(): Promise<string> {
-    const tokens =
-      (await this.ctx.storage.get<Record<string, number>>("turnTokens")) ?? {};
     const now = Date.now();
-    for (const [t, exp] of Object.entries(tokens)) {
-      if (exp <= now) delete tokens[t];
-    }
+    const tokens = Object.fromEntries(
+      Object.entries(
+        (await this.ctx.storage.get<Record<string, number>>("turnTokens")) ?? {},
+      )
+        .filter(([, exp]) => exp > now)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, MailboxDO.TURN_TOKEN_MAX_OUTSTANDING - 1),
+    );
     const raw = new Uint8Array(16);
     crypto.getRandomValues(raw);
     const token = toB64url(raw);
-    tokens[token] = now + 24 * 3600 * 1000;
+    tokens[token] = now + MailboxDO.TURN_TOKEN_TTL_MS;
     await this.ctx.storage.put("turnTokens", tokens);
     return token;
   }
@@ -283,6 +297,9 @@ export class MailboxDO extends DurableObject<Env> {
       (await this.ctx.storage.get<Record<string, number>>("turnTokens")) ?? {};
     const exp = tokens[body.token];
     if (!exp || exp <= Date.now()) return json(403, { error: "BAD_TOKEN" });
+    // Single-use: a captured token can't be replayed to mint more credentials.
+    delete tokens[body.token];
+    await this.ctx.storage.put("turnTokens", tokens);
     return new Response(null, { status: 204 });
   }
 

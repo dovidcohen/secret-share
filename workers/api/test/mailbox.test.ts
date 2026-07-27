@@ -154,7 +154,9 @@ describe("websocket signaling", () => {
     receiver.accept();
     const r = collect(receiver);
     expect((await r.next("joined")).peerPresent).toBe(true);
-    expect(await s.next("peer-joined")).toBeTruthy();
+    const peerJoined = await s.next("peer-joined");
+    expect(peerJoined).toBeTruthy();
+    expect(peerJoined.turnToken).toMatch(/^[A-Za-z0-9_-]{22}$/);
 
     sender.send(JSON.stringify({ t: "signal", payload: { kind: "offer", sdp: "v=0" } }));
     expect((await r.next("signal")).payload.sdp).toBe("v=0");

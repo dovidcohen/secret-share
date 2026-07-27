@@ -83,51 +83,58 @@ async function mintTurnCredentials(request: Request, env: Env): Promise<Response
   );
 }
 
+async function handle(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const { pathname } = url;
+
+  // Plaintext HTTP must never serve the app: an on-path attacker could swap
+  // the JS or read secrets pre-encryption. 308 preserves method for API calls.
+  // (`wrangler dev` rewrites request URLs to the route host over http, so
+  // local dev is exempted via .dev.vars rather than by hostname.)
+  if (url.protocol === "http:" && env.ENVIRONMENT !== "dev") {
+    url.protocol = "https:";
+    return Response.redirect(url.toString(), 308);
+  }
+
+  // Canonical host: www duplicates the apex in search indexes otherwise.
+  // Fragments (where share codes live) survive redirects client-side.
+  if (url.hostname.startsWith("www.")) {
+    url.hostname = url.hostname.slice(4);
+    return Response.redirect(url.toString(), 301);
+  }
+
+  if (pathname.startsWith("/api/") || pathname.startsWith("/ws/")) {
+    if (env.CREATE_LIMITER && isRateLimited(request, pathname)) {
+      const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+      const { success } = await env.CREATE_LIMITER.limit({ key: ip });
+      if (!success) {
+        return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
+      }
+    }
+
+    if (pathname === "/api/turn" && request.method === "POST") {
+      return mintTurnCredentials(request, env);
+    }
+
+    const mailboxId = mailboxIdFor(pathname);
+    if (!mailboxId) {
+      return Response.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+
+    // One DO instance per mailbox: routing, storage, and signaling all converge here.
+    const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
+    return stub.fetch(request);
+  }
+
+  return env.ASSETS.fetch(request);
+}
+
 export default {
   async fetch(request, env): Promise<Response> {
-    const url = new URL(request.url);
-    const { pathname } = url;
-
-    // Plaintext HTTP must never serve the app: an on-path attacker could swap
-    // the JS or read secrets pre-encryption. 308 preserves method for API calls.
-    // (`wrangler dev` rewrites request URLs to the route host over http, so
-    // local dev is exempted via .dev.vars rather than by hostname.)
-    if (url.protocol === "http:" && env.ENVIRONMENT !== "dev") {
-      url.protocol = "https:";
-      return Response.redirect(url.toString(), 308);
-    }
-
-    // Canonical host: www duplicates the apex in search indexes otherwise.
-    // Fragments (where share codes live) survive redirects client-side.
-    if (url.hostname.startsWith("www.")) {
-      url.hostname = url.hostname.slice(4);
-      return Response.redirect(url.toString(), 301);
-    }
-
-    if (pathname.startsWith("/api/") || pathname.startsWith("/ws/")) {
-      if (env.CREATE_LIMITER && isRateLimited(request, pathname)) {
-        const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-        const { success } = await env.CREATE_LIMITER.limit({ key: ip });
-        if (!success) {
-          return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
-        }
-      }
-
-      if (pathname === "/api/turn" && request.method === "POST") {
-        return mintTurnCredentials(request, env);
-      }
-
-      const mailboxId = mailboxIdFor(pathname);
-      if (!mailboxId) {
-        return Response.json({ error: "NOT_FOUND" }, { status: 404 });
-      }
-
-      // One DO instance per mailbox: routing, storage, and signaling all converge here.
-      const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
-      return stub.fetch(request);
-    }
-
-    const res = await env.ASSETS.fetch(request);
+    const res = await handle(request, env);
+    // Uniform security headers on everything — assets, API, and redirects.
+    // 101s are exempt: a WebSocket upgrade response cannot be reconstructed.
+    if (res.status === 101) return res;
     const hardened = new Response(res.body, res);
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) hardened.headers.set(k, v);
     return hardened;
