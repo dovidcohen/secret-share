@@ -222,15 +222,17 @@ export class MailboxDO extends DurableObject<Env> {
       } catch {
         return json(403, { error: "BAD_ORIGIN" });
       }
-      // Host comparison (not full origin): `wrangler dev` rewrites both the
-      // request URL and the Origin header to the route host over http.
-      const sameHost = originHost === url.hostname;
-      // localhost is only trusted under `wrangler dev` — in production a
-      // malicious local process must not get a pass.
-      const isLocalDev =
-        this.env.ENVIRONMENT === "dev" &&
-        (originHost === "localhost" || originHost === "127.0.0.1");
-      if (!sameHost && !isLocalDev) return json(403, { error: "BAD_ORIGIN" });
+      // Production requires the exact https origin (rejects alternate schemes
+      // and ports). Under `wrangler dev` — which rewrites both the request URL
+      // and the Origin header to the route host over http — host matching and
+      // localhost are accepted instead.
+      const allowed =
+        origin === `https://${url.hostname}` ||
+        (this.env.ENVIRONMENT === "dev" &&
+          (originHost === url.hostname ||
+            originHost === "localhost" ||
+            originHost === "127.0.0.1"));
+      if (!allowed) return json(403, { error: "BAD_ORIGIN" });
     }
     const role = RoleSchema.safeParse(url.searchParams.get("role"));
     if (!role.success) return json(400, { error: "BAD_REQUEST" });
