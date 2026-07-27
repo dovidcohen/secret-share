@@ -7,7 +7,8 @@ import { EmailMessage } from "cloudflare:email";
  * time to flip on Workers Paid before users see errors.
  */
 export async function checkUsage(env: Env): Promise<void> {
-  if (!env.CF_ANALYTICS_TOKEN || !env.CF_ACCOUNT_ID) return; // not configured
+  // ALERT_TO is a secret (recipient address kept out of the public repo).
+  if (!env.CF_ANALYTICS_TOKEN || !env.CF_ACCOUNT_ID || !env.ALERT_TO) return; // not configured
 
   const today = new Date().toISOString().slice(0, 10);
   const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {

@@ -22,7 +22,8 @@ declare global {
     ALERT_EMAIL: SendEmail;
     USAGE_ALERT_THRESHOLD?: string;
     ALERT_FROM: string;
-    ALERT_TO: string;
+    /** Alert recipient — a secret, so the address stays out of the public repo. */
+    ALERT_TO?: string;
   }
 }
 
