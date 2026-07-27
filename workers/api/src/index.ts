@@ -22,10 +22,43 @@ function mailboxIdFor(pathname: string): string | null {
   return id && MAILBOX_ID_REGEX.test(id) ? id : null;
 }
 
-/** Only drop creation and room joins are IP-limited; claims are limited per-mailbox. */
+/** Drop creation, room joins, and TURN minting are IP-limited; claims per-mailbox. */
 function isRateLimited(request: Request, pathname: string): boolean {
   return (
-    (request.method === "PUT" && DROP_ROUTE.test(pathname)) || WS_ROUTE.test(pathname)
+    (request.method === "PUT" && DROP_ROUTE.test(pathname)) ||
+    WS_ROUTE.test(pathname) ||
+    pathname === "/api/turn"
+  );
+}
+
+/**
+ * Mints short-lived TURN credentials from Cloudflare Realtime. The relay only
+ * ever carries DTLS ciphertext (the payload is additionally end-to-end
+ * encrypted under the session key), so TURN preserves the zero-knowledge model.
+ */
+async function mintTurnCredentials(env: Env): Promise<Response> {
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) {
+    return Response.json({ error: "TURN_NOT_CONFIGURED" }, { status: 404 });
+  }
+  const upstream = await fetch(
+    `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ttl: 600 }),
+    },
+  );
+  if (!upstream.ok) {
+    return Response.json({ error: "TURN_UNAVAILABLE" }, { status: 503 });
+  }
+  const data = (await upstream.json()) as { iceServers: unknown };
+  const iceServers = Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers];
+  return Response.json(
+    { iceServers },
+    { headers: { "Cache-Control": "no-store" } },
   );
 }
 
@@ -35,17 +68,21 @@ export default {
     const { pathname } = url;
 
     if (pathname.startsWith("/api/") || pathname.startsWith("/ws/")) {
-      const mailboxId = mailboxIdFor(pathname);
-      if (!mailboxId) {
-        return Response.json({ error: "NOT_FOUND" }, { status: 404 });
-      }
-
       if (env.CREATE_LIMITER && isRateLimited(request, pathname)) {
         const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
         const { success } = await env.CREATE_LIMITER.limit({ key: ip });
         if (!success) {
           return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
         }
+      }
+
+      if (pathname === "/api/turn" && request.method === "GET") {
+        return mintTurnCredentials(env);
+      }
+
+      const mailboxId = mailboxIdFor(pathname);
+      if (!mailboxId) {
+        return Response.json({ error: "NOT_FOUND" }, { status: 404 });
       }
 
       // One DO instance per mailbox: routing, storage, and signaling all converge here.

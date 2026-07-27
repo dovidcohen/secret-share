@@ -61,3 +61,14 @@ export const ApiErrorSchema = z.object({
   attemptsLeft: z.number().int().optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+/** GET /api/turn — short-lived ICE servers (empty/404 when TURN is not configured). */
+export const IceServerSchema = z.object({
+  urls: z.union([z.string(), z.array(z.string())]),
+  username: z.string().optional(),
+  credential: z.string().optional(),
+});
+export const TurnResponseSchema = z.object({
+  iceServers: z.array(IceServerSchema),
+});
+export type TurnResponse = z.infer<typeof TurnResponseSchema>;

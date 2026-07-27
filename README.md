@@ -76,9 +76,13 @@ Notes:
 - The `unsafe.bindings` rate-limit config (30 creates+joins/min/IP) is the
   open-beta Workers rate-limiting binding; a zone WAF rule on `/api/*` is an
   equivalent alternative.
-- ICE is STUN-only for now; peers that can't hole-punch fall back to the async
-  drop automatically. Add a TURN credentials endpoint (Cloudflare Realtime)
-  later if live-path success rates matter.
+- TURN relay (Cloudflare Realtime) is supported for the ~10-15% of peer pairs
+  that can't hole-punch. Create a TURN key in the dashboard
+  (dash.cloudflare.com → Realtime → TURN), then:
+  `wrangler secret put TURN_KEY_ID` and `wrangler secret put TURN_KEY_API_TOKEN`.
+  Without the secrets the app runs STUN-only and P2P failures fall back to the
+  async drop (except direct-only mode, which needs the live path to succeed).
+  The relay carries DTLS ciphertext with the payload E2E-encrypted on top.
 
 ## Security model, honestly stated
 

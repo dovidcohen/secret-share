@@ -3,6 +3,7 @@ import {
   HelloPayloadSchema,
   LIVE_TIMEOUT_MS,
   SECRET_CHUNK_BYTES,
+  TurnResponseSchema,
   type HelloPayload,
   type SignalPayload,
 } from "@secret-share/protocol";
@@ -22,9 +23,33 @@ import {
 } from "@secret-share/crypto";
 import type { Signaling } from "./ws.js";
 
-const ICE_SERVERS: RTCIceServer[] = [
+const STUN_ONLY: RTCIceServer[] = [
   { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] },
 ];
+
+let iceCache: { servers: RTCIceServer[]; freshUntil: number } | null = null;
+
+/**
+ * STUN + short-lived TURN credentials from /api/turn. TURN covers the ~10-15%
+ * of peer pairs that can't hole-punch; the relay sees only DTLS ciphertext and
+ * the payload is E2E-encrypted on top, so nothing is revealed to it. Falls
+ * back to STUN-only when TURN isn't configured or the mint fails.
+ */
+async function getIceServers(): Promise<RTCIceServer[]> {
+  if (iceCache && iceCache.freshUntil > Date.now()) return iceCache.servers;
+  try {
+    const res = await fetch("/api/turn");
+    if (!res.ok) return STUN_ONLY;
+    const parsed = TurnResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return STUN_ONLY;
+    const servers = [...STUN_ONLY, ...(parsed.data.iceServers as RTCIceServer[])];
+    // Credentials are minted with a 600s TTL; refresh well before that.
+    iceCache = { servers, freshUntil: Date.now() + 4 * 60 * 1000 };
+    return servers;
+  } catch {
+    return STUN_ONLY;
+  }
+}
 
 export class LiveTransferError extends Error {
   override name = "LiveTransferError";
@@ -219,7 +244,7 @@ export async function senderLiveTransfer(
   plaintext: Uint8Array,
   timeoutMs: number = LIVE_TIMEOUT_MS,
 ): Promise<void> {
-  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
   const dc = pc.createDataChannel("secret", { ordered: true });
   dc.binaryType = "arraybuffer";
   const reader = new FrameReader(dc);
@@ -281,7 +306,7 @@ export async function receiverLiveTransfer(
   offerSdp: string,
   timeoutMs: number = LIVE_TIMEOUT_MS,
 ): Promise<Uint8Array> {
-  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
   const unsubscribe = signaling.on((msg) => {
     if (msg.t !== "signal" || msg.payload.kind !== "ice") return;
     void pc

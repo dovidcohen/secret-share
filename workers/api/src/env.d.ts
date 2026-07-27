@@ -10,6 +10,9 @@ declare global {
     ASSETS: Fetcher;
     /** Workers rate-limiting binding; optional so local dev works without it. */
     CREATE_LIMITER?: RateLimiter;
+    /** Cloudflare Realtime TURN key (secrets); absent -> STUN-only operation. */
+    TURN_KEY_ID?: string;
+    TURN_KEY_API_TOKEN?: string;
   }
 }
 

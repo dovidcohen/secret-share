@@ -170,3 +170,11 @@ describe("websocket signaling", () => {
     expect((await SELF.fetch(`https://x/ws/${id}?role=sender`)).status).toBe(426);
   });
 });
+
+describe("turn credentials", () => {
+  it("reports not-configured when secrets are absent", async () => {
+    const res = await SELF.fetch("https://x/api/turn");
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toBe("TURN_NOT_CONFIGURED");
+  });
+});
