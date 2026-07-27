@@ -52,7 +52,7 @@ nav { display: inline-flex; gap: 0.25rem; background: var(--card); border: 1px s
 textarea, input[type="text"] {
   width: 100%;
   font-family: ui-monospace, "Cascadia Code", monospace;
-  font-size: 0.9rem;
+  font-size: 16px; /* never below 16px: iOS Safari auto-zooms smaller inputs on focus */
   padding: 0.7rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -110,3 +110,10 @@ button.danger-outline { color: var(--danger); border-color: var(--danger); backg
   overflow: auto;
 }
 footer { margin-top: 1.5rem; text-align: center; }
+
+/* Touch devices: 44px minimum tap targets (Apple HIG). */
+@media (pointer: coarse) {
+  button { min-height: 44px; padding: 0.65rem 1.1rem; }
+  .tab { padding: 0.6rem 1.4rem; }
+  select { min-height: 40px; font-size: 16px; }
+}
