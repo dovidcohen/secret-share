@@ -3,6 +3,12 @@
   "name": "secret-share",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-01",
+  // Publish to the custom domain only; no workers.dev subdomain needed.
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "shareasecret.io", "custom_domain": true },
+    { "pattern": "www.shareasecret.io", "custom_domain": true }
+  ],
   // run_worker_first: true so the Worker can stamp security headers on every
   // asset response, not just API routes.
   "assets": {
