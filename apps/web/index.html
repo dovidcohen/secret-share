@@ -93,7 +93,25 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <noscript>
+        <h1>Secret Share — one-time, end-to-end encrypted secret sharing</h1>
+        <p>
+          Pass a password, SSH key, or API token to exactly one person. Your secret is
+          encrypted in your browser before anything leaves it, transferred directly
+          browser-to-browser when both people are online, and destroyed after a single
+          read. No account required.
+        </p>
+        <p>Guides:</p>
+        <ul>
+          <li><a href="/guides/send-ssh-key-securely">How to send an SSH key securely</a></li>
+          <li><a href="/guides/share-password-one-time-link">Share a password as a one-time link</a></li>
+          <li><a href="/guides/send-api-key-securely">How to send an API key securely</a></li>
+          <li><a href="/compare/secret-sharing-tools">Compare secret-sharing tools</a></li>
+        </ul>
+        <p>Secret Share requires JavaScript for the encryption to run in your browser.</p>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
