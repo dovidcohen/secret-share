@@ -23,7 +23,7 @@ for (const p of PAGES) {
   const { status, body } = await head(BASE + p);
   const has = (re) => re.test(body);
   const title = (body.match(/<title>([^<]*)<\/title>/) || [])[1] || "";
-  const desc = (body.match(/<meta name="description" content="([^"]*)"/) || [])[1] || "";
+  const desc = (body.match(/<meta\s+name="description"\s+content="([^"]*)"/) || [])[1] || "";
   const canon = (body.match(/rel="canonical" href="([^"]*)"/) || [])[1] || "";
   console.log(`\n${p}  [${status}]`);
   console.log(`  ${ok(status === 200)} 200`);
