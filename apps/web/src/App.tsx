@@ -61,6 +61,8 @@ export function App() {
           <a href="/guides/send-api-key-securely">Send API keys</a>
           {" · "}
           <a href="/compare/secret-sharing-tools">Compare tools</a>
+          {" · "}
+          <a href="/blog">Engineering blog</a>
         </p>
       </footer>
     </main>

@@ -9,6 +9,8 @@ const PAGES = [
   "/guides/share-password-one-time-link",
   "/guides/send-api-key-securely",
   "/compare/secret-sharing-tools",
+  "/blog",
+  "/blog/park-first-secret-sharing",
 ];
 
 async function head(url, opts) {
@@ -44,7 +46,7 @@ const sm = await head(BASE + "/sitemap.xml");
 const locs = [...sm.body.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
 console.log(`\n/sitemap.xml [${sm.status}]`);
 console.log(`  ${ok(sm.status === 200)} 200`);
-console.log(`  ${ok(locs.length === 5)} lists ${locs.length} URLs (expect 5)`);
+console.log(`  ${ok(locs.length === 7)} lists ${locs.length} URLs (expect 7)`);
 console.log(`  ${ok(PAGES.every((p) => locs.includes(BASE + (p === "/" ? "/" : p))))} all pages present in sitemap`);
 
 const og = await head(BASE + "/og.png");

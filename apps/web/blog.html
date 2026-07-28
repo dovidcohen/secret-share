@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Engineering Blog — Secret Share</title>
+  <meta name="description" content="Design write-ups from Secret Share: the park-first transfer protocol, browser-side key derivation, and why read-once needs transactional storage." />
+  <link rel="canonical" href="https://shareasecret.io/blog" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/guides.css" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Engineering Blog — Secret Share" />
+  <meta property="og:description" content="Design write-ups from Secret Share: the park-first protocol, key derivation, and read-once storage." />
+  <meta property="og:url" content="https://shareasecret.io/blog" />
+  <meta property="og:image" content="https://shareasecret.io/og.png" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Blog",
+   "name":"Secret Share Engineering Blog",
+   "url":"https://shareasecret.io/blog",
+   "publisher":{"@type":"Organization","name":"Secret Share","url":"https://shareasecret.io/"}}
+  </script>
+</head>
+<body>
+  <header class="site">
+    <a class="brand" href="/"><span>⧉</span> Secret Share</a>
+    <a class="cta-button" href="/">Share a secret</a>
+  </header>
+  <main>
+    <article>
+      <h1>Engineering blog</h1>
+      <p class="byline">Design write-ups on the protocol and infrastructure behind Secret Share.</p>
+
+      <div class="callout">
+        <h2 style="margin-top: 0"><a href="/blog/park-first-secret-sharing">A secret-sharing protocol that works when the other person isn't there</a></h2>
+        <p>
+          How Secret Share moves a secret browser-to-browser when it can, and parks it
+          as an encrypted dead drop when it can't: the one-code-two-jobs split, why
+          park-first beats pure P2P and pure dead-drop, key confirmation that makes
+          the signaling server MITM-proof, and why read-once forced Durable Objects
+          over KV.
+        </p>
+        <p class="byline" style="margin-bottom: 0">July 28, 2026</p>
+      </div>
+    </article>
+  </main>
+  <footer class="site">
+    <ul>
+      <li><a href="/">Secret Share</a></li>
+      <li><a href="/guides/send-ssh-key-securely">Send an SSH key securely</a></li>
+      <li><a href="/guides/share-password-one-time-link">One-time password links</a></li>
+      <li><a href="/guides/send-api-key-securely">Send an API key securely</a></li>
+      <li><a href="/compare/secret-sharing-tools">Compare secret-sharing tools</a></li>
+      <li><a href="https://github.com/dovidcohen/secret-share">Source code</a></li>
+    </ul>
+  </footer>
+</body>
+</html>
