@@ -121,8 +121,9 @@ Notes:
   code, and each side proves knowledge via HMAC key-confirmation before the
   secret moves.
 - **Residual trust:** this is a web app; you trust the JavaScript we serve at the
-  moment you use it. Mitigations on the roadmap: published source, reproducible
-  builds, subresource integrity, a CLI client.
+  moment you use it. Mitigations: published source and the `shareasecret` CLI
+  (pinnable to an exact npm version). Still on the roadmap: reproducible builds,
+  subresource integrity.
 - Share links carry the code in the URL **fragment** (never sent over HTTP);
   `Referrer-Policy: no-referrer` and `Cache-Control: no-store` throughout.
 
