@@ -1,0 +1,30 @@
+{
+  "name": "shareasecret",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Share a small secret with exactly one person. End-to-end encrypted, read-once, auto-expiring — shareasecret.io from the terminal.",
+  "type": "module",
+  "bin": {
+    "shareasecret": "./dist/cli.cjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/cli.cjs \"--banner:js=#!/usr/bin/env node\"",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@secret-share/crypto": "workspace:*",
+    "@secret-share/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "esbuild": "^0.25.0",
+    "vitest": "^3.2.0"
+  }
+}

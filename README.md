@@ -37,6 +37,7 @@ delivered live transfer is never re-offered, and TTL alarms sweep leftovers.
 | Piece | Tech |
 |---|---|
 | `apps/web` | React + Vite + TS single-page app |
+| `apps/cli` | `shareasecret` terminal client (Node ≥20, zero runtime deps, single-file bundle) |
 | `workers/api` | One Cloudflare Worker: REST + WebSocket signaling + static assets |
 | `MailboxDO` | One Durable Object per mailbox (SQLite storage): drop, attempt counter, TTL alarm, signaling room |
 | `packages/crypto` | Argon2id (hash-wasm) + WebCrypto (HKDF, AES-GCM, HMAC), code gen/parse |
@@ -45,6 +46,32 @@ delivered live transfer is never re-offered, and TTL alarms sweep leftovers.
 Durable Object storage (not KV) because read-once needs transactional
 read-and-delete — KV's eventual consistency could serve a "deleted" secret from
 another edge for up to a minute.
+
+## CLI
+
+Same protocol, same crypto (the CLI bundles `packages/crypto` unchanged — Node's
+WebCrypto), no browser. Uses the parked path only, so it interoperates with the
+web app in both directions: send from the terminal, open in a browser, or vice
+versa.
+
+```sh
+cat id_ed25519 | shareasecret send --ttl 2h
+# Share code (read-once, speak it or send it over any channel):
+#
+#   XKQ2-M7PT-tiger-ocean-cable-ruby-drum
+
+shareasecret receive XKQ2-M7PT-tiger-ocean-cable-ruby-drum > id_ed25519
+shareasecret revoke  XKQ2-M7PT-tiger-ocean-cable-ruby-drum   # burn before it's read
+```
+
+`send` prints the bare code on stdout (decoration goes to stderr) so it pipes
+cleanly; `--json` emits `{code, link, expiresAt, ttlSeconds}`. `receive` writes
+the raw secret bytes to stdout and also accepts the full `/r#` link. Exit codes
+are stable for scripting: 0 ok, 2 usage, 3 wrong code, 4 not found, 5 already
+read/expired, 6 too large. Point it at a dev server with `--server` or
+`SHAREASECRET_SERVER`.
+
+Build: `pnpm build:cli` → `apps/cli/dist/cli.cjs` (self-contained, shebanged).
 
 ## Development
 
@@ -61,6 +88,7 @@ Manual verification scripts (against a running `pnpm dev:api`):
 node workers/api/test/manual-drops.mjs   # REST lifecycle incl. 75s TTL test
 node workers/api/test/manual-ws.mjs      # signaling: presence, relay, roles
 node apps/web/test/e2e.mjs               # Playwright: live P2P, async claim, WebRTC-blocked fallback
+node apps/cli/test/manual-cli.mjs        # CLI lifecycle: round-trip, read-once, revoke, exit codes
 ```
 
 The e2e script expects the **built** SPA on :8787: `pnpm build` first.

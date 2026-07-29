@@ -12,6 +12,25 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  apps/cli:
+    dependencies:
+      '@secret-share/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@secret-share/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.1.1
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@26.1.1)(supports-color@10.2.2)
+
   apps/web:
     dependencies:
       '@secret-share/crypto':

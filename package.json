@@ -6,6 +6,7 @@
     "dev:web": "pnpm --filter @secret-share/web dev",
     "dev:api": "pnpm --filter @secret-share/api dev",
     "build": "pnpm --filter @secret-share/web build",
+    "build:cli": "pnpm --filter shareasecret build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "deploy": "pnpm --filter @secret-share/web build && pnpm --filter @secret-share/api deploy"
