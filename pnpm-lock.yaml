@@ -13,14 +13,13 @@ importers:
         version: 5.9.3
 
   apps/cli:
-    dependencies:
+    devDependencies:
       '@secret-share/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
       '@secret-share/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-    devDependencies:
       '@types/node':
         specifier: ^26.0.0
         version: 26.1.1
