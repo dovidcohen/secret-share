@@ -40,27 +40,34 @@
       <h2>Quick start</h2>
       <ol class="steps">
         <li>Send — the secret is read from stdin and encrypted before anything leaves your machine:
-          <pre><code>cat id_ed25519 | npx shareasecret send --ttl 2h</code></pre>
+          <pre><code>cat id_ed25519 | npx shareasecret@0.1.2 send --ttl 2h</code></pre>
           You get a share code like <code>XKQ2-M7PT-tiger-ocean-cable-ruby-drum</code>
-          and a link. Speak the code over a call or send the link over any channel.</li>
-        <li>Receive — with the code or the full link; the secret is written to stdout:
-          <pre><code>npx shareasecret receive XKQ2-M7PT-tiger-ocean-cable-ruby-drum &gt; id_ed25519</code></pre></li>
-        <li>Sent the wrong thing? Burn it before anyone reads it:
-          <pre><code>npx shareasecret revoke XKQ2-M7PT-tiger-ocean-cable-ruby-drum</code></pre></li>
+          and a link. Speak the code over a call or send the link over any channel.
+          (Examples pin the version — see <a href="#trust">why</a>; check
+          <a href="https://www.npmjs.com/package/shareasecret">npm</a> for the latest.)</li>
+        <li>Receive — run it without the code and it prompts with input hidden, keeping
+          the code out of your shell history; <code>--output</code> writes the file with
+          <code>0600</code> permissions from the first byte:
+          <pre><code>npx shareasecret@0.1.2 receive --output id_ed25519</code></pre></li>
+        <li>Sent the wrong thing? Burn it before anyone reads it —
+          <code>npx shareasecret@0.1.2 revoke</code> prompts for the code the same way.</li>
       </ol>
 
       <h2>Sending</h2>
       <ul>
-        <li><strong>Anything on stdin works</strong> — pipe a file (<code>cat .env | npx shareasecret send</code>),
-          a command's output (<code>op read "op://vault/item/field" | npx shareasecret send</code>),
-          or run it bare and paste interactively (finish with Ctrl+D; Ctrl+Z then Enter on Windows).
-          Text or binary, up to 10&nbsp;KB.</li>
+        <li><strong>Pipe the secret in</strong> — a file (<code>cat .env | npx shareasecret@0.1.2 send</code>)
+          or a command's output (<code>op read "op://vault/item/field" | npx shareasecret@0.1.2 send</code>).
+          Text or binary, up to 10&nbsp;KB. Running it bare and pasting works too, but the
+          pasted secret stays visible in your terminal scrollback — the CLI warns about
+          this; prefer piping.</li>
         <li><strong><code>--ttl</code></strong> sets the expiry: <code>90s</code>, <code>30m</code>,
           <code>2h</code>, <code>1d</code> — minimum 60&nbsp;seconds, maximum 7&nbsp;days, default 1&nbsp;day.
           The drop is destroyed at first read regardless.</li>
-        <li><strong>Pipes stay clean</strong> — the bare code goes to stdout and everything decorative
-          goes to stderr, so <code>CODE=$(cat key.pem | npx shareasecret send)</code> captures
-          just the code.</li>
+        <li><strong>Capture-safe output</strong> — when stdout is captured
+          (<code>CODE=$(cat key.pem | npx shareasecret@0.1.2 send)</code>, a pipe, CI), the
+          code is written to stdout <em>only</em>; stderr carries just a non-sensitive
+          status line, so the capability never leaks into CI logs. The full pretty
+          output (code, link, revoke command) appears only when stdout is a terminal.</li>
         <li><strong><code>--json</code></strong> emits <code>{"code", "link", "expiresAt", "ttlSeconds"}</code>
           on a single line for scripts.</li>
       </ul>
@@ -70,8 +77,18 @@
         <li>Accepts the dashed code, the words separated by spaces, or the full
           <code>https://shareasecret.io/r#…</code> link. Case and lookalike characters
           (<code>O</code>/<code>0</code>, <code>l</code>/<code>1</code>) are forgiven.</li>
-        <li>The raw secret bytes go to stdout — redirect to a file for keys
-          (<code>&gt; id_ed25519</code>) and remember to <code>chmod 600</code> it.</li>
+        <li><strong>Keep the code out of shell history</strong> — a code typed as an
+          argument lands in history and is briefly visible to other local processes.
+          Omit it: <code>receive</code> prompts for it with input hidden, and scripts can
+          pipe it to stdin instead of argv.</li>
+        <li><strong>Writing key files: use <code>--output</code></strong> — it creates the
+          file with <code>0600</code> permissions from the first byte and refuses to
+          overwrite. A shell redirect (<code>&gt; id_ed25519</code>) creates the file with
+          your umask — often world-readable — and <code>chmod 600</code> afterwards leaves
+          a window. If you must redirect, do it under a tight umask:
+          <code>(umask 077; npx shareasecret@0.1.2 receive &gt; id_ed25519)</code>.
+          On Windows, <code>--output</code>'s mode is advisory — the file inherits the
+          folder's ACL.</li>
         <li>Reading claims the secret: the server copy is destroyed in the same
           transaction. A second attempt gets "already read" — if you didn't read it
           twice, treat that as a signal someone else did.</li>
@@ -95,26 +112,38 @@
       </div>
       <p>
         A typical handoff: generate a credential, send it, and post the code — never
-        the credential — to the channel where your teammate is waiting:
+        the credential — to the channel where your teammate is waiting. The code is
+        captured from stdout only; stderr stays free of it, so CI logs are safe:
       </p>
       <pre><code>TOKEN=$(create-scoped-token --expires 7d)
-CODE=$(printf '%s' "$TOKEN" | npx shareasecret send --ttl 2h)
+CODE=$(printf '%s' "$TOKEN" | npx shareasecret@0.1.2 send --ttl 2h)
 echo "Your token: shareasecret.io/r#$CODE (single read, dead in 2h)"</code></pre>
+      <p>
+        One caveat that can't be engineered away: whatever channel you post the code to
+        can read the secret once. That's the read-once design — interception is a
+        visible race, not a silent copy — but choose the channel accordingly.
+      </p>
 
-      <h2>What the CLI does and doesn't do</h2>
+      <h2 id="trust">What the CLI does and doesn't do</h2>
       <ul>
-        <li><strong>Same security model as the web app.</strong> The five code words never
-          leave your machine; the key is derived locally with Argon2id and the server
-          stores only ciphertext and hashed tags. Sender and receiver can each use
-          whichever interface they prefer.</li>
+        <li><strong>Same cryptographic protocol as the web app</strong> — the five code
+          words never leave your machine; the key is derived locally with Argon2id and
+          the server stores only ciphertext and hashed tags. Sender and receiver can
+          each use whichever interface they prefer. But a terminal adds its own risk
+          surface the browser doesn't have: shell history, terminal scrollback, the
+          process list, file permissions, and CI logs. The flags above exist for
+          exactly those — hidden code prompt, capture-safe output, <code>--output</code>
+          with <code>0600</code>.</li>
         <li><strong>It always uses the encrypted drop.</strong> The browser's
           direct-transfer-only mode (nothing stored, both parties live) is not in the
           CLI yet — if you need the never-stored guarantee, use the web app's checkbox
           for now.</li>
-        <li><strong>Pin the version for the strongest posture.</strong> A web page is
-          re-fetched every visit; a pinned package is not:
-          <code>npx shareasecret@0.1.1 send</code> runs bit-identical, inspectable code
-          every time. Install it permanently with <code>npm install -g shareasecret</code>.</li>
+        <li><strong>Pin the version.</strong> A web page is re-fetched every visit; a
+          pinned package is not: <code>npx shareasecret@0.1.2</code> runs bit-identical,
+          inspectable code every time, which is why the examples on this page pin.
+          Unpinned <code>npx shareasecret</code> runs whatever is newest — convenient,
+          but it trusts the npm supply chain at each invocation. Install permanently
+          with <code>npm install -g shareasecret</code>.</li>
       </ul>
 
       <div class="cta">

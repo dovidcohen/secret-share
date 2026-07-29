@@ -11,8 +11,9 @@ cat id_ed25519 | npx shareasecret send --ttl 2h
 #
 #   XKQ2-M7PT-tiger-ocean-cable-ruby-drum
 
-npx shareasecret receive XKQ2-M7PT-tiger-ocean-cable-ruby-drum > id_ed25519
-npx shareasecret revoke  XKQ2-M7PT-tiger-ocean-cable-ruby-drum   # burn before it's read
+npx shareasecret receive --output id_ed25519   # prompts for the code (input hidden),
+                                               # writes the file 0600, never overwrites
+npx shareasecret revoke                        # burn before it's read; prompts the same way
 ```
 
 The recipient doesn't need the CLI — the code also works at
@@ -32,19 +33,27 @@ secret, and neither can anyone without the exact code.
 ## Usage
 
 ```
-shareasecret send [--ttl <duration>] [--json]     read secret from stdin, print share code
-shareasecret receive <code|link>                  claim the secret, write it to stdout
-shareasecret revoke <code>                        burn a drop you sent before it is read
+shareasecret send [--ttl <duration>] [--json]        read secret from stdin, print share code
+shareasecret receive [<code|link>] [-o <file>]       claim the secret (omit code to be prompted)
+shareasecret revoke [<code>]                         burn a drop you sent before it is read
 ```
 
 - `--ttl` — expiry: `90s`, `30m`, `2h`, `1d` (min 60s, max 7d, default 1d)
 - `--json` — machine-readable `{code, link, expiresAt, ttlSeconds}` on stdout
-- `send` prints the bare code on stdout (decoration on stderr), so
-  `CODE=$(... | shareasecret send)` works; `receive` writes raw secret bytes
+- `-o, --output <file>` — receive: create the file `0600` from the first byte
+  (no umask window), refuse to overwrite; on Windows the mode is advisory
+- Codes as arguments land in shell history and the process list — omit the code
+  and `receive`/`revoke` prompt for it without echoing (scripts: pipe it to stdin)
+- Capture-safe: when stdout is captured (`CODE=$(… | shareasecret send)`, CI),
+  the code goes to stdout *only* — stderr never carries it, so logs stay clean
 - Exit codes: `0` ok, `1` error, `2` usage, `3` wrong code, `4` not found,
   `5` already read or expired, `6` too large
 
-Requires Node ≥ 20. No runtime dependencies.
+Requires Node ≥ 20. No runtime dependencies. The web page is re-fetched on every
+visit; a pinned package is not — `npx shareasecret@<version>` runs bit-identical,
+inspectable code each time. The protocol matches the web app; the terminal adds
+its own risk surface (history, scrollback, process list, file permissions, CI
+logs), which the flags above are designed to close.
 
 ## License
 

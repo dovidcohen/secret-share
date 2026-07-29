@@ -1,9 +1,11 @@
 // CLI lifecycle against a running `pnpm dev:api` (build the CLI first: pnpm --filter shareasecret build).
 // Usage: node apps/cli/test/manual-cli.mjs [server]
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join, dirname } from "node:path";
+import { join, dirname, join as pjoin } from "node:path";
+import { tmpdir } from "node:os";
 
 const server = process.argv[2] ?? "http://localhost:8787";
 const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.cjs");
@@ -27,6 +29,12 @@ function cli(args, input) {
   } catch (e) {
     return { status: e.status ?? 1, stdout: e.stdout ?? Buffer.alloc(0) };
   }
+}
+
+/** Like cli() but also captures stderr (spawnSync captures it on success too). */
+function cli2(args, input) {
+  const r = spawnSync(process.execPath, [bin, ...args], { env, input });
+  return { status: r.status ?? 1, stdout: r.stdout, stderr: r.stderr };
 }
 
 // send --json -> receive round-trips arbitrary bytes
@@ -65,5 +73,28 @@ check("empty stdin exits 2", cli(["send"], "").status === 2);
 check("bad ttl exits 2", cli(["send", "--ttl", "8d"], "x").status === 2);
 check("bad code exits 2", cli(["receive", "nonsense"]).status === 2);
 check("oversize exits 6", cli(["send"], Buffer.alloc(11_000)).status === 6);
+
+// captured stdout must not leak the code to stderr (CI-log safety)
+const leak = cli2(["send"], "leak-check");
+const leakCode = leak.stdout.toString().trim();
+check("piped send: code on stdout only", leakCode.length > 0 && !leak.stderr.toString().includes(leakCode));
+
+// receive --output: 0600, refuses overwrite
+const outFile = pjoin(tmpdir(), `sas-test-${Date.now()}.txt`);
+try {
+  const wrote = cli2(["receive", leakCode, "--output", outFile]);
+  check("receive --output exits 0", wrote.status === 0);
+  check("--output wrote the secret", readFileSync(outFile, "utf8") === "leak-check");
+  const again = cli2(["send"], "second");
+  const clobber = cli2(["receive", again.stdout.toString().trim(), "--output", outFile]);
+  check("--output refuses overwrite", clobber.status === 1 && clobber.stderr.toString().includes("refusing"));
+} finally {
+  if (existsSync(outFile)) rmSync(outFile);
+}
+
+// code on stdin instead of argv (keeps it out of history/process list)
+const viaStdin = cli2(["send"], "code-via-stdin");
+const got2 = cli2(["receive"], viaStdin.stdout.toString());
+check("receive reads code from piped stdin", got2.status === 0 && got2.stdout.toString() === "code-via-stdin");
 
 process.exit(failures ? 1 : 0);

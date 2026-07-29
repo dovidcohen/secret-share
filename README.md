@@ -64,12 +64,14 @@ shareasecret receive XKQ2-M7PT-tiger-ocean-cable-ruby-drum > id_ed25519
 shareasecret revoke  XKQ2-M7PT-tiger-ocean-cable-ruby-drum   # burn before it's read
 ```
 
-`send` prints the bare code on stdout (decoration goes to stderr) so it pipes
-cleanly; `--json` emits `{code, link, expiresAt, ttlSeconds}`. `receive` writes
-the raw secret bytes to stdout and also accepts the full `/r#` link. Exit codes
-are stable for scripting: 0 ok, 2 usage, 3 wrong code, 4 not found, 5 already
-read/expired, 6 too large. Point it at a dev server with `--server` or
-`SHAREASECRET_SERVER`.
+`send` prints the bare code on stdout; when stdout is captured (subshell, pipe,
+CI) stderr carries no code or link, so logs can't leak the capability. `--json`
+emits `{code, link, expiresAt, ttlSeconds}`. `receive` accepts the full `/r#`
+link, prompts for the code with input hidden when it's omitted (keeps it out of
+shell history), and `--output <file>` creates key files `0600` with no umask
+window and no overwrites. Exit codes are stable for scripting: 0 ok, 2 usage,
+3 wrong code, 4 not found, 5 already read/expired, 6 too large. Point it at a
+dev server with `--server` or `SHAREASECRET_SERVER`.
 
 Build: `pnpm build:cli` → `apps/cli/dist/cli.cjs` (self-contained, shebanged).
 
