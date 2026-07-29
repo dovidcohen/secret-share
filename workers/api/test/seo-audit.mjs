@@ -8,6 +8,7 @@ const PAGES = [
   "/guides/send-ssh-key-securely",
   "/guides/share-password-one-time-link",
   "/guides/send-api-key-securely",
+  "/guides/cli",
   "/compare/secret-sharing-tools",
   "/blog",
   "/blog/park-first-secret-sharing",
@@ -46,7 +47,7 @@ const sm = await head(BASE + "/sitemap.xml");
 const locs = [...sm.body.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
 console.log(`\n/sitemap.xml [${sm.status}]`);
 console.log(`  ${ok(sm.status === 200)} 200`);
-console.log(`  ${ok(locs.length === 7)} lists ${locs.length} URLs (expect 7)`);
+console.log(`  ${ok(locs.length === PAGES.length)} lists ${locs.length} URLs (expect ${PAGES.length})`);
 console.log(`  ${ok(PAGES.every((p) => locs.includes(BASE + (p === "/" ? "/" : p))))} all pages present in sitemap`);
 
 const og = await head(BASE + "/og.png");

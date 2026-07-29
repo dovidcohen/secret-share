@@ -54,6 +54,10 @@ export function App() {
           the server. Secrets are read-once and expire automatically.
         </p>
         <p className="muted footer-links">
+          <a href="/guides/cli">
+            CLI: <code>npx shareasecret</code>
+          </a>
+          {" · "}
           <a href="/guides/send-ssh-key-securely">Send an SSH key securely</a>
           {" · "}
           <a href="/guides/share-password-one-time-link">One-time password links</a>

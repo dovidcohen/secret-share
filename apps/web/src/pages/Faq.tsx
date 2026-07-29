@@ -84,6 +84,18 @@ export function Faq() {
       </details>
 
       <details>
+        <summary>Is there a command-line version?</summary>
+        <p>
+          Yes — <code>npx shareasecret</code> sends and receives with the same codes
+          and the same encryption as this page, so either side can use the terminal
+          while the other uses the browser:{" "}
+          <code>cat id_ed25519 | npx shareasecret send --ttl 2h</code>. It pipes
+          cleanly, emits JSON, and uses stable exit codes for scripting. See the{" "}
+          <a href="/guides/cli">CLI guide</a> for full directions.
+        </p>
+      </details>
+
+      <details>
         <summary>How big can a secret be, and what should I use this for?</summary>
         <p>
           Up to 10&nbsp;KB of text — SSH keys, API tokens, passwords, connection

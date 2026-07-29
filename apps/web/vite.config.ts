@@ -13,6 +13,7 @@ export default defineConfig({
         "guide-ssh": page("guides/send-ssh-key-securely.html"),
         "guide-password": page("guides/share-password-one-time-link.html"),
         "guide-api": page("guides/send-api-key-securely.html"),
+        "guide-cli": page("guides/cli.html"),
         compare: page("compare/secret-sharing-tools.html"),
         blog: page("blog.html"),
         "blog-park-first": page("blog/park-first-secret-sharing.html"),

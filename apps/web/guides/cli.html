@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Share Secrets from the Terminal — the shareasecret CLI</title>
+  <meta name="description" content="Send and receive one-time, end-to-end encrypted secrets from the command line with npx shareasecret. Same protocol as the web app — pipe, script, and automate it." />
+  <link rel="canonical" href="https://shareasecret.io/guides/cli" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/guides.css" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="Share Secrets from the Terminal — the shareasecret CLI" />
+  <meta property="og:description" content="Send and receive one-time, end-to-end encrypted secrets from the command line with npx shareasecret." />
+  <meta property="og:url" content="https://shareasecret.io/guides/cli" />
+  <meta property="og:image" content="https://shareasecret.io/og.png" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article",
+   "headline":"Share Secrets from the Terminal — the shareasecret CLI",
+   "description":"Send and receive one-time, end-to-end encrypted secrets from the command line with npx shareasecret.",
+   "author":{"@type":"Organization","name":"Secret Share"},
+   "publisher":{"@type":"Organization","name":"Secret Share","url":"https://shareasecret.io/"},
+   "mainEntityOfPage":"https://shareasecret.io/guides/cli"}
+  </script>
+</head>
+<body>
+  <header class="site">
+    <a class="brand" href="/"><span>⧉</span> Secret Share</a>
+    <a class="cta-button" href="/">Share a secret</a>
+  </header>
+  <main>
+    <article>
+      <h1>Share secrets from the terminal</h1>
+      <p class="byline">
+        The <a href="https://www.npmjs.com/package/shareasecret"><code>shareasecret</code></a> CLI
+        speaks the same protocol as this site — same codes, same crypto, same read-once
+        guarantee. Send from the terminal and receive in a browser, or the other way
+        around. Requires Node&nbsp;20+; nothing else to install.
+      </p>
+
+      <h2>Quick start</h2>
+      <ol class="steps">
+        <li>Send — the secret is read from stdin and encrypted before anything leaves your machine:
+          <pre><code>cat id_ed25519 | npx shareasecret send --ttl 2h</code></pre>
+          You get a share code like <code>XKQ2-M7PT-tiger-ocean-cable-ruby-drum</code>
+          and a link. Speak the code over a call or send the link over any channel.</li>
+        <li>Receive — with the code or the full link; the secret is written to stdout:
+          <pre><code>npx shareasecret receive XKQ2-M7PT-tiger-ocean-cable-ruby-drum &gt; id_ed25519</code></pre></li>
+        <li>Sent the wrong thing? Burn it before anyone reads it:
+          <pre><code>npx shareasecret revoke XKQ2-M7PT-tiger-ocean-cable-ruby-drum</code></pre></li>
+      </ol>
+
+      <h2>Sending</h2>
+      <ul>
+        <li><strong>Anything on stdin works</strong> — pipe a file (<code>cat .env | npx shareasecret send</code>),
+          a command's output (<code>op read "op://vault/item/field" | npx shareasecret send</code>),
+          or run it bare and paste interactively (finish with Ctrl+D; Ctrl+Z then Enter on Windows).
+          Text or binary, up to 10&nbsp;KB.</li>
+        <li><strong><code>--ttl</code></strong> sets the expiry: <code>90s</code>, <code>30m</code>,
+          <code>2h</code>, <code>1d</code> — minimum 60&nbsp;seconds, maximum 7&nbsp;days, default 1&nbsp;day.
+          The drop is destroyed at first read regardless.</li>
+        <li><strong>Pipes stay clean</strong> — the bare code goes to stdout and everything decorative
+          goes to stderr, so <code>CODE=$(cat key.pem | npx shareasecret send)</code> captures
+          just the code.</li>
+        <li><strong><code>--json</code></strong> emits <code>{"code", "link", "expiresAt", "ttlSeconds"}</code>
+          on a single line for scripts.</li>
+      </ul>
+
+      <h2>Receiving</h2>
+      <ul>
+        <li>Accepts the dashed code, the words separated by spaces, or the full
+          <code>https://shareasecret.io/r#…</code> link. Case and lookalike characters
+          (<code>O</code>/<code>0</code>, <code>l</code>/<code>1</code>) are forgiven.</li>
+        <li>The raw secret bytes go to stdout — redirect to a file for keys
+          (<code>&gt; id_ed25519</code>) and remember to <code>chmod 600</code> it.</li>
+        <li>Reading claims the secret: the server copy is destroyed in the same
+          transaction. A second attempt gets "already read" — if you didn't read it
+          twice, treat that as a signal someone else did.</li>
+      </ul>
+
+      <h2>Scripting</h2>
+      <p>Exit codes are stable, so automation can branch on what happened:</p>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>Success</td></tr>
+          <tr><td>1</td><td>Network or unexpected error</td></tr>
+          <tr><td>2</td><td>Usage error (bad flag, malformed code, empty stdin)</td></tr>
+          <tr><td>3</td><td>Wrong code words — the error reports attempts left before the drop burns</td></tr>
+          <tr><td>4</td><td>No drop at that code (expired, revoked, or never existed)</td></tr>
+          <tr><td>5</td><td>Already read or burned</td></tr>
+          <tr><td>6</td><td>Secret exceeds 10&nbsp;KB</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>
+        A typical handoff: generate a credential, send it, and post the code — never
+        the credential — to the channel where your teammate is waiting:
+      </p>
+      <pre><code>TOKEN=$(create-scoped-token --expires 7d)
+CODE=$(printf '%s' "$TOKEN" | npx shareasecret send --ttl 2h)
+echo "Your token: shareasecret.io/r#$CODE (single read, dead in 2h)"</code></pre>
+
+      <h2>What the CLI does and doesn't do</h2>
+      <ul>
+        <li><strong>Same security model as the web app.</strong> The five code words never
+          leave your machine; the key is derived locally with Argon2id and the server
+          stores only ciphertext and hashed tags. Sender and receiver can each use
+          whichever interface they prefer.</li>
+        <li><strong>It always uses the encrypted drop.</strong> The browser's
+          direct-transfer-only mode (nothing stored, both parties live) is not in the
+          CLI yet — if you need the never-stored guarantee, use the web app's checkbox
+          for now.</li>
+        <li><strong>Pin the version for the strongest posture.</strong> A web page is
+          re-fetched every visit; a pinned package is not:
+          <code>npx shareasecret@0.1.1 send</code> runs bit-identical, inspectable code
+          every time. Install it permanently with <code>npm install -g shareasecret</code>.</li>
+      </ul>
+
+      <div class="cta">
+        <p><strong>No terminal on the other end?</strong> The code you send works right here in the browser too.</p>
+        <a class="cta-button" href="/">Share a secret →</a>
+      </div>
+    </article>
+  </main>
+  <footer class="site">
+    <ul>
+      <li><a href="/">Secret Share</a></li>
+      <li><a href="/guides/send-ssh-key-securely">Send an SSH key securely</a></li>
+      <li><a href="/guides/share-password-one-time-link">One-time password links</a></li>
+      <li><a href="/guides/send-api-key-securely">Send an API key securely</a></li>
+      <li><a href="/compare/secret-sharing-tools">Compare secret-sharing tools</a></li>
+      <li><a href="/blog">Engineering blog</a></li>
+      <li><a href="https://github.com/dovidcohen/secret-share">Source code</a></li>
+    </ul>
+  </footer>
+</body>
+</html>

@@ -85,6 +85,14 @@
                 "@type": "Answer",
                 "text": "Up to 10 KB of text: SSH keys, API tokens, passwords, connection strings, or recovery codes, shared from one sender to exactly one receiver."
               }
+            },
+            {
+              "@type": "Question",
+              "name": "Is there a command-line version?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. npx shareasecret sends and receives with the same codes and encryption as the web app, pipes cleanly, and uses stable exit codes for scripting. Either side can use the terminal while the other uses the browser."
+              }
             }
           ]
         }
@@ -102,8 +110,13 @@
           browser-to-browser when both people are online, and destroyed after a single
           read. No account required.
         </p>
+        <p>
+          Prefer the terminal? The same protocol is available as a CLI:
+          <code>npx shareasecret</code> — see the <a href="/guides/cli">CLI guide</a>.
+        </p>
         <p>Guides:</p>
         <ul>
+          <li><a href="/guides/cli">Share secrets from the terminal (CLI)</a></li>
           <li><a href="/guides/send-ssh-key-securely">How to send an SSH key securely</a></li>
           <li><a href="/guides/share-password-one-time-link">Share a password as a one-time link</a></li>
           <li><a href="/guides/send-api-key-securely">How to send an API key securely</a></li>
