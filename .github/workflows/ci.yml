@@ -31,3 +31,15 @@ jobs:
 
       - name: Build web app
         run: pnpm --filter @secret-share/web build
+
+      - name: Build CLI
+        run: pnpm --filter shareasecret build
+
+      # The read-once lifecycle guarantees (drop survival on failed --output,
+      # capture-safe stderr, claim-once) live in the e2e script — run it here
+      # against a real wrangler dev so they can't regress silently.
+      - name: CLI lifecycle e2e (wrangler dev)
+        run: |
+          pnpm dev:api &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8787/ >/dev/null && break || sleep 1; done
+          node apps/cli/test/manual-cli.mjs

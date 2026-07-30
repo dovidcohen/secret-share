@@ -1,0 +1,39 @@
+name: Publish CLI
+
+# Publishes apps/cli to npm via OIDC trusted publishing — no token stored
+# anywhere, and npm generates a provenance attestation automatically.
+# Requires the trusted publisher registered on npmjs.com for `shareasecret`:
+# owner dovidcohen, repo secret-share, workflow publish.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for npm trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Trusted publishing needs npm >= 11.5.1; Node 24 ships close but pin fresh.
+      - name: Update npm
+        run: npm install -g npm@latest && npm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # prepublishOnly runs typecheck + tests + build before anything uploads.
+      - name: Publish shareasecret
+        working-directory: apps/cli
+        run: npm publish
