@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { closeSync, openSync, unlinkSync, writeSync } from "node:fs";
 import { parseArgs } from "node:util";
 import {
   CodeFormatError,
@@ -231,35 +231,85 @@ async function send(server: string, ttl: string | undefined, json: boolean) {
 
 async function receive(server: string, positionals: string[], output: string | undefined) {
   const code = await resolveCode(positionals);
-  const keys = await deriveKeys(code);
-  let blob: Uint8Array;
-  try {
-    blob = await claimDrop(server, keys);
-  } catch (e) {
-    if (e instanceof BadTagError) fail(e.message, EXIT.badCode);
-    if (e instanceof DropNotFoundError) {
-      fail("no drop at that code — expired, revoked, or never existed", EXIT.notFound);
+
+  // Claiming burns the read-once drop, so every local failure that can be
+  // detected up front must happen BEFORE the claim. Reserving the output file
+  // first (wx: fails on existing, 0600 from the first byte) means a bad path,
+  // existing file, or permission problem costs nothing — the drop survives.
+  // On Windows the mode is advisory; the file inherits the folder's ACL.
+  let fd: number | undefined;
+  if (output !== undefined) {
+    try {
+      fd = openSync(output, "wx", 0o600);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "EEXIST") {
+        fail(`refusing to overwrite existing file: ${output} (drop not claimed)`, EXIT.error);
+      }
+      fail(`cannot create ${output}: ${err.message} (drop not claimed)`, EXIT.error);
     }
-    if (e instanceof DropGoneError) {
-      fail("already read or burned — read-once means it is gone", EXIT.gone);
+  }
+
+  const keys = await deriveKeys(code);
+  let plaintext: Uint8Array;
+  try {
+    let blob: Uint8Array;
+    try {
+      blob = await claimDrop(server, keys);
+    } catch (e) {
+      if (e instanceof BadTagError) fail(e.message, EXIT.badCode);
+      if (e instanceof DropNotFoundError) {
+        fail("no drop at that code — expired, revoked, or never existed", EXIT.notFound);
+      }
+      if (e instanceof DropGoneError) {
+        fail("already read or burned — read-once means it is gone", EXIT.gone);
+      }
+      throw e;
+    }
+    plaintext = await decryptSecret(keys, blob);
+  } catch (e) {
+    // Claim failed — remove the empty reservation so a retry can reuse the path.
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+        unlinkSync(output as string);
+      } catch {
+        /* the reservation is empty; leaving it behind is harmless */
+      }
     }
     throw e;
   }
-  const plaintext = await decryptSecret(keys, blob);
-  if (output !== undefined) {
+
+  if (fd !== undefined) {
     try {
-      // 0600 from the first byte (no umask window); wx refuses to overwrite.
-      // On Windows the mode is advisory — the file inherits the folder's ACL.
-      writeFileSync(output, plaintext, { mode: 0o600, flag: "wx" });
+      writeSync(fd, plaintext);
+      closeSync(fd);
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "EEXIST") {
-        fail(`refusing to overwrite existing file: ${output}`, EXIT.error);
+      // The drop is already burned — losing the secret now would be worse
+      // than breaking the --output contract, so fall back to stdout.
+      process.stderr.write(
+        `error: writing ${output} failed (${(e as Error).message}) — ` +
+          "the drop is already claimed, printing the secret to stdout instead:\n",
+      );
+      try {
+        closeSync(fd);
+      } catch {
+        /* already closed by the failed write path */
       }
-      throw e;
+      try {
+        unlinkSync(output as string);
+      } catch {
+        /* best effort: don't leave a partial secret on disk */
+      }
+      process.stdout.write(plaintext);
+      if (process.stdout.isTTY && plaintext.at(-1) !== 0x0a) process.stdout.write("\n");
+      process.exitCode = EXIT.error;
+      return;
     }
     process.stderr.write(`Wrote ${plaintext.length} bytes to ${output} (mode 0600).\n`);
     return;
   }
+
   process.stdout.write(plaintext);
   // Keep a TTY prompt tidy without altering piped bytes.
   if (process.stdout.isTTY && plaintext.at(-1) !== 0x0a) process.stdout.write("\n");
@@ -331,11 +381,13 @@ main().catch((e: unknown) => {
     return;
   }
   const msg =
-    e instanceof TypeError && /fetch/i.test(String(e.message))
-      ? `network error — is the server reachable? (${e.message})`
-      : e instanceof Error
-        ? e.message
-        : String(e);
+    e instanceof Error && e.name === "TimeoutError"
+      ? "network timeout — the server did not respond within 15s"
+      : e instanceof TypeError && /fetch/i.test(String(e.message))
+        ? `network error — is the server reachable? (${e.message})`
+        : e instanceof Error
+          ? e.message
+          : String(e);
   process.stderr.write(`error: ${msg}\n`);
   process.exitCode = EXIT.error;
 });

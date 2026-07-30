@@ -85,9 +85,15 @@ try {
   const wrote = cli2(["receive", leakCode, "--output", outFile]);
   check("receive --output exits 0", wrote.status === 0);
   check("--output wrote the secret", readFileSync(outFile, "utf8") === "leak-check");
+  // Failed --output must not burn the drop: refusal happens before the claim.
   const again = cli2(["send"], "second");
-  const clobber = cli2(["receive", again.stdout.toString().trim(), "--output", outFile]);
+  const againCode = again.stdout.toString().trim();
+  const clobber = cli2(["receive", againCode, "--output", outFile]);
   check("--output refuses overwrite", clobber.status === 1 && clobber.stderr.toString().includes("refusing"));
+  const badDir = cli2(["receive", againCode, "--output", pjoin(tmpdir(), "no-such-dir-sas", "x.txt")]);
+  check("--output bad dir fails pre-claim", badDir.status === 1 && badDir.stderr.toString().includes("not claimed"));
+  const survived = cli2(["receive", againCode]);
+  check("drop survives failed --output", survived.status === 0 && survived.stdout.toString() === "second");
 } finally {
   if (existsSync(outFile)) rmSync(outFile);
 }
