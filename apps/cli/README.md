@@ -6,14 +6,14 @@ The CLI for [shareasecret.io](https://shareasecret.io) — fully interoperable
 with the web app in both directions.
 
 ```sh
-cat id_ed25519 | npx shareasecret@0.1.4 send --ttl 2h
+cat id_ed25519 | npx shareasecret@0.1.5 send --ttl 2h
 # Share code (read-once, speak it or send it over any channel):
 #
 #   XKQ2-M7PT-tiger-ocean-cable-ruby-drum
 
-npx shareasecret@0.1.4 receive --output id_ed25519   # prompts for the code (input hidden),
+npx shareasecret@0.1.5 receive --output id_ed25519   # prompts for the code (input hidden),
                                                      # writes the file 0600, never overwrites
-npx shareasecret@0.1.4 revoke                        # burn before it's read; prompts the same way
+npx shareasecret@0.1.5 revoke                        # burn before it's read; prompts the same way
 ```
 
 Examples pin the version deliberately — pinned invocations run bit-identical,

@@ -40,7 +40,7 @@
       <h2>Quick start</h2>
       <ol class="steps">
         <li>Send — the secret is read from stdin and encrypted before anything leaves your machine:
-          <pre><code>cat id_ed25519 | npx shareasecret@0.1.4 send --ttl 2h</code></pre>
+          <pre><code>cat id_ed25519 | npx shareasecret@0.1.5 send --ttl 2h</code></pre>
           You get a share code like <code>XKQ2-M7PT-tiger-ocean-cable-ruby-drum</code>
           and a link. Speak the code over a call or send the link over any channel.
           (Examples pin the version — see <a href="#trust">why</a>; check
@@ -48,15 +48,15 @@
         <li>Receive — run it without the code and it prompts with input hidden, keeping
           the code out of your shell history; <code>--output</code> writes the file with
           <code>0600</code> permissions from the first byte:
-          <pre><code>npx shareasecret@0.1.4 receive --output id_ed25519</code></pre></li>
+          <pre><code>npx shareasecret@0.1.5 receive --output id_ed25519</code></pre></li>
         <li>Sent the wrong thing? Burn it before anyone reads it —
-          <code>npx shareasecret@0.1.4 revoke</code> prompts for the code the same way.</li>
+          <code>npx shareasecret@0.1.5 revoke</code> prompts for the code the same way.</li>
       </ol>
 
       <h2>Sending</h2>
       <ul>
-        <li><strong>Pipe the secret in</strong> — a file (<code>cat .env | npx shareasecret@0.1.4 send</code>)
-          or a command's output (<code>op read "op://vault/item/field" | npx shareasecret@0.1.4 send</code>).
+        <li><strong>Pipe the secret in</strong> — a file (<code>cat .env | npx shareasecret@0.1.5 send</code>)
+          or a command's output (<code>op read "op://vault/item/field" | npx shareasecret@0.1.5 send</code>).
           Text or binary, up to 10&nbsp;KB. Running it bare and pasting works too, but the
           pasted secret stays visible in your terminal scrollback — the CLI warns about
           this; prefer piping.</li>
@@ -64,7 +64,7 @@
           <code>2h</code>, <code>1d</code> — minimum 60&nbsp;seconds, maximum 7&nbsp;days, default 1&nbsp;day.
           The drop is destroyed at first read regardless.</li>
         <li><strong>stderr never duplicates the code</strong> — when stdout is captured
-          (<code>CODE=$(cat key.pem | npx shareasecret@0.1.4 send)</code>, a pipe, CI), the
+          (<code>CODE=$(cat key.pem | npx shareasecret@0.1.5 send)</code>, a pipe, CI), the
           code is written to stdout <em>only</em>, and stderr carries just a non-sensitive
           status line. That makes stdout the single place to control: capture or
           redirect it explicitly (uncaptured stdout still lands in CI logs), disable
@@ -89,7 +89,7 @@
           overwrite. A shell redirect (<code>&gt; id_ed25519</code>) creates the file with
           your umask — often world-readable — and <code>chmod 600</code> afterwards leaves
           a window. If you must redirect, do it under a tight umask:
-          <code>(umask 077; npx shareasecret@0.1.4 receive &gt; id_ed25519)</code>.
+          <code>(umask 077; npx shareasecret@0.1.5 receive &gt; id_ed25519)</code>.
           On Windows, <code>--output</code>'s mode is advisory — the file inherits the
           folder's ACL.</li>
         <li>Reading claims the secret: the server copy is destroyed in the same
@@ -121,7 +121,7 @@
         the delivery channel, deliberately:
       </p>
       <pre><code>TOKEN=$(create-scoped-token --expires 7d)
-CODE=$(printf '%s' "$TOKEN" | npx shareasecret@0.1.4 send --ttl 2h)
+CODE=$(printf '%s' "$TOKEN" | npx shareasecret@0.1.5 send --ttl 2h)
 echo "Your token: shareasecret.io/r#$CODE (single read, dead in 2h)"</code></pre>
       <p>
         One caveat that can't be engineered away: whatever channel you post the code to
@@ -144,7 +144,7 @@ echo "Your token: shareasecret.io/r#$CODE (single read, dead in 2h)"</code></pre
           CLI yet — if you need the never-stored guarantee, use the web app's checkbox
           for now.</li>
         <li><strong>Pin the version.</strong> A web page is re-fetched every visit; a
-          pinned package is not: <code>npx shareasecret@0.1.4</code> runs bit-identical,
+          pinned package is not: <code>npx shareasecret@0.1.5</code> runs bit-identical,
           inspectable code every time, which is why the examples on this page pin.
           Unpinned <code>npx shareasecret</code> runs whatever is newest — convenient,
           but it trusts the npm supply chain at each invocation. Install permanently

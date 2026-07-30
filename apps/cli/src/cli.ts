@@ -135,6 +135,20 @@ function promptCodeHidden(): Promise<string> {
   });
 }
 
+/** Yes/no question on the TTY — only ever called when stdin is interactive. */
+function confirmOnTty(question: string): Promise<boolean> {
+  process.stderr.write(question);
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    stdin.once("data", (line) => {
+      stdin.pause();
+      resolve(/^y(es)?$/i.test(String(line).trim()));
+    });
+  });
+}
+
 /** First non-empty line of piped stdin — lets scripts avoid argv entirely. */
 async function readCodeFromPipe(): Promise<string> {
   let text = "";
@@ -281,28 +295,31 @@ async function receive(server: string, positionals: string[], output: string | u
   }
 
   if (fd !== undefined) {
+    // writeSync may write fewer bytes than the buffer holds — loop until
+    // every byte lands, or a truncated credential would pass as success.
+    let written = 0;
     try {
-      writeSync(fd, plaintext);
+      while (written < plaintext.length) {
+        written += writeSync(fd, plaintext, written, plaintext.length - written);
+      }
       closeSync(fd);
     } catch (e) {
-      // The drop is already burned — losing the secret now would be worse
-      // than breaking the --output contract, so fall back to stdout.
-      process.stderr.write(
-        `error: writing ${output} failed (${(e as Error).message}) — ` +
-          "the drop is already claimed, printing the secret to stdout instead:\n",
-      );
+      // The drop is already burned. The caller chose --output, so the secret
+      // must NOT be auto-disclosed on stdout (CI logs, pipes). Keep whatever
+      // landed in the 0600 file and only offer stdout recovery interactively.
       try {
         closeSync(fd);
       } catch {
         /* already closed by the failed write path */
       }
-      try {
-        unlinkSync(output as string);
-      } catch {
-        /* best effort: don't leave a partial secret on disk */
+      process.stderr.write(
+        `error: writing ${output} failed after the drop was claimed (${(e as Error).message}); ` +
+          `${written} of ${plaintext.length} bytes were written and left in place (mode 0600)\n`,
+      );
+      if (process.stdin.isTTY && (await confirmOnTty("Print the secret to stdout instead? [y/N] "))) {
+        process.stdout.write(plaintext);
+        if (process.stdout.isTTY && plaintext.at(-1) !== 0x0a) process.stdout.write("\n");
       }
-      process.stdout.write(plaintext);
-      if (process.stdout.isTTY && plaintext.at(-1) !== 0x0a) process.stdout.write("\n");
       process.exitCode = EXIT.error;
       return;
     }
