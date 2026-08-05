@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { FountainDecoder, FountainEncoder, PayloadTooLargeError } from "../fountain.js";
+import {
+  FountainDecoder,
+  FountainEncoder,
+  PayloadTooLargeError,
+  validateParams,
+} from "../fountain.js";
 import { packFrame, parseFrame, sameSession } from "../frame.js";
-import { MAX_K } from "../constants.js";
+import { MAX_BLOCK_BYTES, MAX_CONTAINER_BYTES, MAX_K } from "../constants.js";
 import { FrameRng } from "../prng.js";
 
 function testData(len: number, seed = 1): Uint8Array {
@@ -154,5 +159,27 @@ describe("frame pack/parse", () => {
   it("detects a session change", () => {
     expect(sameSession(params, { ...params, sessionId: 0xcafe0002 })).toBe(false);
     expect(sameSession(params, { ...params, flags: 0 })).toBe(false);
+  });
+
+  it("rejects hostile parameters a v1 sender would never produce", () => {
+    expect(validateParams(params)).toBe(true);
+    // unknown flag bits
+    expect(validateParams({ ...params, flags: 0x80 })).toBe(false);
+    // oversized blocks
+    const bigBlock = MAX_BLOCK_BYTES + 1;
+    expect(
+      validateParams({ ...params, blockSize: bigBlock, k: Math.ceil(params.totalLen / bigBlock) }),
+    ).toBe(false);
+    // container beyond any legitimate transfer
+    const hugeLen = MAX_CONTAINER_BYTES + 1;
+    expect(
+      validateParams({ ...params, totalLen: hugeLen, k: Math.ceil(hugeLen / params.blockSize) }),
+    ).toBe(false);
+    // a frame carrying unknown flags is treated as foreign
+    const frame = packFrame(params, 7, testData(347, 11));
+    frame[18] = 0x81;
+    expect(parseFrame(frame)).toBeNull();
+    // decoder refuses to construct on hostile params
+    expect(() => new FountainDecoder({ ...params, flags: 0x80 })).toThrow(RangeError);
   });
 });

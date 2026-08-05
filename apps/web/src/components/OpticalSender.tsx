@@ -16,7 +16,15 @@ import {
 } from "@secret-share/optical";
 import { cameraSource, canvasSource, type FrameSource } from "../lib/scanner.js";
 
-type Phase = "compose" | "keyscan" | "streaming" | "error";
+type Phase = "compose" | "keyscan" | "confirm" | "streaming" | "error";
+
+interface PendingTransfer {
+  data: Uint8Array;
+  meta: { name: string | null; mime: string };
+  sessionId: number;
+  key: CryptoKey;
+  senderPub: Uint8Array;
+}
 
 const FPS_OPTIONS = [5, 8, 10, 15];
 
@@ -66,6 +74,7 @@ export function OpticalSender({ loopback }: { loopback: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const pendingRef = useRef<PendingTransfer | null>(null);
 
   useWakeLock(phase === "streaming");
   useEffect(() => () => cleanupRef.current?.(), []);
@@ -125,15 +134,16 @@ export function OpticalSender({ loopback }: { loopback: boolean }) {
                 receiverPub,
               );
               setSafety(keys.safetyNumber);
-              stream(
-                await sealContainer(data, meta, {
-                  key: keys.key,
-                  senderPub: sender.publicRaw,
-                  sessionId,
-                }),
+              // Pause before streaming: a swapped pairing QR means the payload
+              // would go to the impostor. Let the sender look before sending.
+              pendingRef.current = {
+                data,
+                meta,
                 sessionId,
-                FRAME_FLAG_ENCRYPTED,
-              );
+                key: keys.key,
+                senderPub: sender.publicRaw,
+              };
+              setPhase("confirm");
             } catch (e) {
               fail(e);
             }
@@ -229,9 +239,10 @@ export function OpticalSender({ loopback }: { loopback: boolean }) {
         </div>
         <label className="muted checkbox-row">
           <input type="checkbox" checked={encrypted} onChange={(e) => setEncrypted(e.target.checked)} />{" "}
-          Encrypted — for rooms you don't trust (security cameras, onlookers). You'll
-          scan a pairing code from the receiver's screen first; needs a camera on this
-          device too.
+          Encrypted — defeats recordings and onlookers (security cameras, shoulder
+          surfers). You'll scan a pairing code from the receiver's screen first; needs
+          a camera on this device too. Note: pair directly from the receiver's actual
+          screen — the encryption is only as good as the code you scan.
         </label>
         <div className="row">
           <span className={tooBig ? "danger" : "muted"}>
@@ -257,6 +268,53 @@ export function OpticalSender({ loopback }: { loopback: boolean }) {
         </p>
         {!loopback && <video ref={videoRef} className="optical-video" playsInline muted />}
         <button onClick={() => { stop(); setPhase("compose"); }}>Cancel</button>
+      </>
+    );
+  }
+
+  if (phase === "confirm") {
+    return (
+      <>
+        <h2>Paired — check before sending</h2>
+        <p className="muted">
+          This safety number was derived from the pairing. The receiver will show the
+          same one when the transfer completes — if you want certainty it's their
+          device you paired with (not a swapped code), glance at their screen after.
+        </p>
+        <p className="safety-number" style={{ textAlign: "center" }}>{safety}</p>
+        <button
+          className="primary"
+          onClick={() => {
+            const p = pendingRef.current;
+            if (!p) return;
+            void (async () => {
+              try {
+                stream(
+                  await sealContainer(p.data, p.meta, {
+                    key: p.key,
+                    senderPub: p.senderPub,
+                    sessionId: p.sessionId,
+                  }),
+                  p.sessionId,
+                  FRAME_FLAG_ENCRYPTED,
+                );
+              } catch (e) {
+                fail(e);
+              }
+            })();
+          }}
+        >
+          Start streaming
+        </button>
+        <button
+          onClick={() => {
+            pendingRef.current = null;
+            setSafety("");
+            setPhase("compose");
+          }}
+        >
+          Cancel
+        </button>
       </>
     );
   }

@@ -135,6 +135,43 @@ describe("container", () => {
     expect(asText).not.toContain("payroll");
   });
 
+  it("rejects a declared size outside 1..MAX (before any decompression)", async () => {
+    // hand-craft: valid prefix + meta claiming an absurd size
+    const metaJson = utf8(
+      JSON.stringify({ name: null, mime: "x", size: MAX_TRANSFER_BYTES + 1, sha256: "AA" }),
+    );
+    const metaLen = new Uint8Array(2);
+    new DataView(metaLen.buffer).setUint16(0, metaJson.length);
+    const crafted = new Uint8Array([
+      0x4f, 0x51, 0x52, 0x31, 0x01, 0x00, // "OQR1", v1, no flags
+      ...metaLen, ...metaJson, 1, 2, 3,
+    ]);
+    await expect(openContainer(crafted, { sessionId: 1 })).rejects.toThrow(
+      /declared size out of range/,
+    );
+  });
+
+  it("aborts a gzip bomb the moment output exceeds the declared size", async () => {
+    // gzip of 1 MiB of zeros (~1 KiB compressed) with meta claiming 100 bytes
+    const bomb = new Uint8Array(1024 * 1024);
+    const gz = new Uint8Array(
+      await new Response(
+        new Blob([bomb]).stream().pipeThrough(new CompressionStream("gzip")),
+      ).arrayBuffer(),
+    );
+    expect(gz.length).toBeLessThan(10_000);
+    const metaJson = utf8(JSON.stringify({ name: null, mime: "x", size: 100, sha256: "AA" }));
+    const metaLen = new Uint8Array(2);
+    new DataView(metaLen.buffer).setUint16(0, metaJson.length);
+    const crafted = new Uint8Array([
+      0x4f, 0x51, 0x52, 0x31, 0x01, 0x01, // "OQR1", v1, gzip flag
+      ...metaLen, ...metaJson, ...gz,
+    ]);
+    await expect(openContainer(crafted, { sessionId: 1 })).rejects.toThrow(
+      /exceeds declared size/,
+    );
+  });
+
   it("travels intact through the fountain layer (integration)", async () => {
     const data = randomBytes(40_000);
     const sealed = await sealContainer(data, { name: "img.png", mime: "image/png" });

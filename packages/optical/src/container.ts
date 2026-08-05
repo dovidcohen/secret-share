@@ -12,10 +12,12 @@ import { concatBytes, randomBytes, sha256, toB64url, utf8 } from "@secret-share/
  * Encrypting the whole plain section keeps the filename confidential too.
  */
 
+import { MAX_TRANSFER_BYTES } from "./constants.js";
+
 export const CONTAINER_VERSION = 0x01;
 export const CONTAINER_FLAG_GZIP = 0b01;
 export const CONTAINER_FLAG_ENCRYPTED = 0b10;
-export const MAX_TRANSFER_BYTES = 4 * 1024 * 1024;
+export { MAX_TRANSFER_BYTES };
 export const EPK_BYTES = 65; // raw uncompressed P-256 point
 
 const MAGIC = utf8("OQR1");
@@ -71,15 +73,42 @@ async function tryGzip(data: Uint8Array): Promise<Uint8Array | null> {
   return pipeThrough(data, new CompressionStream("gzip"));
 }
 
-async function gunzip(data: Uint8Array): Promise<Uint8Array> {
+/**
+ * Bounded incremental gunzip. The stream comes off an untrusted camera, so a
+ * tiny frame sequence could declare a gzip bomb — abort the moment output
+ * exceeds what the (already-validated) metadata declared.
+ */
+async function gunzip(data: Uint8Array, limit: number): Promise<Uint8Array> {
   if (typeof DecompressionStream === "undefined") {
     throw new ContainerFormatError("gzip container but DecompressionStream unavailable");
   }
+  const ds = new DecompressionStream("gzip");
+  const writer = ds.writable.getWriter();
+  // Writer-side rejections (corrupt input, cancelled readable) surface on the
+  // reader side too — swallow here to avoid an unhandled rejection.
+  void writer
+    .write(data as BufferSource)
+    .then(() => writer.close())
+    .catch(() => undefined);
+  const reader = ds.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
-    return await pipeThrough(data, new DecompressionStream("gzip"));
-  } catch {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > limit) {
+        await reader.cancel().catch(() => undefined);
+        throw new IntegrityError("decompressed data exceeds declared size");
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    if (e instanceof IntegrityError) throw e;
     throw new ContainerFormatError("corrupt gzip body");
   }
+  return concatBytes(...chunks);
 }
 
 export async function sealContainer(
@@ -213,9 +242,13 @@ export async function openContainer(
   } catch {
     throw new ContainerFormatError("bad container metadata");
   }
+  // Validate the declared size BEFORE any decompression — it bounds the gunzip.
+  if (!Number.isInteger(meta.size) || meta.size < 1 || meta.size > MAX_TRANSFER_BYTES) {
+    throw new ContainerFormatError("declared size out of range");
+  }
 
   const body = plain.subarray(2 + metaLen);
-  const data = flags & CONTAINER_FLAG_GZIP ? await gunzip(body) : body;
+  const data = flags & CONTAINER_FLAG_GZIP ? await gunzip(body, meta.size) : body;
   if (data.length !== meta.size) throw new IntegrityError("size mismatch");
   if (toB64url(await sha256(data)) !== meta.sha256) throw new IntegrityError("SHA-256 mismatch");
   return { meta, data };

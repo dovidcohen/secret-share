@@ -109,10 +109,12 @@ async function openLoopback(ctx) {
   await send.locator("input[type=checkbox]").check();
   await send.locator("button.primary", { hasText: "Scan receiver" }).click();
 
-  // 3. sender auto-starts streaming once the key QR is decoded
-  await send.locator("canvas#optical-sender-canvas").waitFor({ timeout: 30_000 });
+  // 3. pairing pauses on the safety number; the sender must confirm to stream
+  await send.locator("h2", { hasText: "Paired" }).waitFor({ timeout: 30_000 });
   const senderSafety = (await send.locator(".safety-number").textContent({ timeout: 10_000 })).trim();
   check("B: sender derived a safety number", /^[0-9A-Z]{8}$/.test(senderSafety), senderSafety);
+  await send.locator("button.primary", { hasText: "Start streaming" }).click();
+  await send.locator("canvas#optical-sender-canvas").waitFor({ timeout: 30_000 });
 
   // 4. receiver starts scanning and completes
   await recv.locator("button.primary", { hasText: "start camera" }).click();
@@ -136,36 +138,39 @@ async function openLoopback(ctx) {
   await ctx.close();
 }
 
-// --- Scenario C: encrypted stream without a pairing code is refused ---
+// --- Scenario C: an unpaired receiver is warned and refused (key hygiene) ---
 {
   const ctx = await browser.newContext();
   const page = await openLoopback(ctx);
   const send = page.locator("[data-testid=optical-send]");
   const recv = page.locator("[data-testid=optical-receive]");
 
-  // receiver A shows a key, sender pairs against it...
+  // receiver shows a key, sender pairs against it and streams...
   await recv.locator("button", { hasText: "Receive encrypted" }).click();
   await recv.locator("#optical-receiver-key").waitFor({ timeout: 10_000 });
   await send.locator("textarea").fill("for the paired receiver only");
   await send.locator("input[type=checkbox]").check();
   await send.locator("button.primary", { hasText: "Scan receiver" }).click();
+  await send.locator("h2", { hasText: "Paired" }).waitFor({ timeout: 30_000 });
+  await send.locator("button.primary", { hasText: "Start streaming" }).click();
   await send.locator("canvas#optical-sender-canvas").waitFor({ timeout: 30_000 });
 
-  // ...but the receiver goes back and scans as a PLAINTEXT receiver (fresh identity path skipped)
+  // ...but the receiver abandons the pairing (Back wipes the ephemeral key)
+  // and scans as a plaintext receiver — it must be warned and then refused.
   await recv.locator("button", { hasText: "Back" }).click();
-  // simulate an unpaired bystander: wipe the page-held identity by reloading the receive side is
-  // not possible per-component, so this asserts the warning banner appears for mismatched pairing.
   await recv.locator("button.primary", { hasText: "Start camera" }).click();
   const warned = await recv
-    .locator("h2", { hasText: "Received" })
+    .locator("p.danger", { hasText: "encrypted" })
     .waitFor({ timeout: 60_000 })
-    .then(async () => {
-      // identity existed (same page), so decryption succeeds — acceptable in loopback.
-      // The real single-device assertion: safety number still shown, content intact.
-      return (await recv.textContent()).includes("Safety number");
-    })
+    .then(() => true)
     .catch(() => false);
-  check("C: paired-receiver path completes with safety number", warned === true);
+  check("C: unpaired receiver sees the encrypted-stream warning", warned);
+  const refused = await recv
+    .locator("p.danger", { hasText: "Receive encrypted" })
+    .waitFor({ timeout: 120_000 })
+    .then(() => true)
+    .catch(() => false);
+  check("C: completion without a pairing key is refused", refused);
   await ctx.close();
 }
 

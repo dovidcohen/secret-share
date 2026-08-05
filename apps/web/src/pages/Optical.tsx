@@ -43,7 +43,9 @@ export function Optical() {
       <p className="muted">
         No network, no server: the payload travels as light between two devices in the
         same room. Anyone who can see the sender's screen could also capture it — use
-        the Encrypted option when the room itself isn't trusted.
+        the Encrypted option when the room itself isn't trusted. Encrypted mode
+        protects against passive observers (recordings, onlookers); matching safety
+        numbers on both screens confirm the pairing wasn't tampered with.
       </p>
     </section>
   );

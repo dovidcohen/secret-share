@@ -1,4 +1,9 @@
-import { MAX_K } from "./constants.js";
+import {
+  FRAME_FLAGS_MASK,
+  MAX_BLOCK_BYTES,
+  MAX_CONTAINER_BYTES,
+  MAX_K,
+} from "./constants.js";
 import { FrameRng } from "./prng.js";
 import { robustSolitonCdf, sampleDegree } from "./soliton.js";
 
@@ -16,6 +21,11 @@ export interface SessionParams {
   flags: number;
 }
 
+/**
+ * Frames arrive from an untrusted camera: a hostile QR can claim anything.
+ * Reject parameter combinations we would never produce so a decoder can't
+ * be talked into allocating unbounded state.
+ */
 export function validateParams(p: SessionParams): boolean {
   return (
     Number.isInteger(p.k) &&
@@ -23,8 +33,11 @@ export function validateParams(p: SessionParams): boolean {
     p.k <= MAX_K &&
     Number.isInteger(p.blockSize) &&
     p.blockSize >= 1 &&
+    p.blockSize <= MAX_BLOCK_BYTES &&
     Number.isInteger(p.totalLen) &&
     p.totalLen >= 1 &&
+    p.totalLen <= MAX_CONTAINER_BYTES &&
+    (p.flags & ~FRAME_FLAGS_MASK) === 0 &&
     Math.ceil(p.totalLen / p.blockSize) === p.k
   );
 }
@@ -116,14 +129,20 @@ export class FountainDecoder {
   private readonly blocks: (Uint8Array | null)[];
   private resolvedCount = 0;
   private collectedCount = 0;
+  private pendingCount = 0;
   private readonly seen = new Set<number>();
   private readonly byBlock = new Map<number, Set<PendingFrame>>();
+  /** Hostile-input ceilings: a healthy transfer needs ~1.15k frames. */
+  private readonly seenCap: number;
+  private readonly pendingCap: number;
 
   constructor(params: SessionParams) {
     if (!validateParams(params)) throw new RangeError("invalid session params");
     this.params = params;
     this.cdf = robustSolitonCdf(params.k);
     this.blocks = new Array<Uint8Array | null>(params.k).fill(null);
+    this.seenCap = params.k * 16 + 1024;
+    this.pendingCap = params.k * 2 + 64;
   }
 
   get complete(): boolean {
@@ -143,7 +162,9 @@ export class FountainDecoder {
   addFrame(seq: number, payload: Uint8Array): boolean {
     if (this.complete) return false;
     if (payload.length !== this.params.blockSize) return false;
+    if (!Number.isInteger(seq) || seq < 0 || seq > 0xffffffff) return false;
     if (this.seen.has(seq)) return false; // camera sees each displayed frame 2-3×
+    if (this.seen.size >= this.seenCap) return false; // stream is garbage — stop accumulating
     this.seen.add(seq);
 
     const indices = blockIndicesFor(this.params.sessionId, this.params.k, this.cdf, seq);
@@ -161,12 +182,17 @@ export class FountainDecoder {
       this.resolve(unknowns.values().next().value as number, data);
       return true;
     }
+    if (this.pendingCount >= this.pendingCap) {
+      this.collectedCount--; // not stored, so it didn't really count
+      return false;
+    }
     const frame: PendingFrame = { unknowns, data };
     for (const idx of unknowns) {
       let waiting = this.byBlock.get(idx);
       if (!waiting) this.byBlock.set(idx, (waiting = new Set()));
       waiting.add(frame);
     }
+    this.pendingCount++;
     return true;
   }
 
@@ -187,6 +213,7 @@ export class FountainDecoder {
         if (frame.unknowns.size === 1) {
           const last = frame.unknowns.values().next().value as number;
           this.byBlock.get(last)?.delete(frame);
+          this.pendingCount--;
           queue.push([last, frame.data]);
         }
       }

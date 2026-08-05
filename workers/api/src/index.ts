@@ -15,7 +15,8 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Strict-Transport-Security": "max-age=31536000",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  // camera=(self): the optical (QR) transfer scans with getUserMedia; same-origin only.
+  "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
 };
 
 function mailboxIdFor(pathname: string): string | null {

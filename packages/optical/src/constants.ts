@@ -10,6 +10,14 @@ export const MAX_K = 0xffff;
 
 /** Frame-header flag: the container is encrypted (UI hint before reassembly). */
 export const FRAME_FLAG_ENCRYPTED = 0b0000_0001;
+/** All flag bits a v1 receiver understands; anything else is a foreign/hostile frame. */
+export const FRAME_FLAGS_MASK = FRAME_FLAG_ENCRYPTED;
+
+export const MAX_TRANSFER_BYTES = 4 * 1024 * 1024;
+/** Hard receiver-side bound on totalLen: max payload + container overhead (meta, epk, IV, tag). */
+export const MAX_CONTAINER_BYTES = MAX_TRANSFER_BYTES + 4096;
+/** Hard receiver-side bound on blockSize — largest profile is 983. */
+export const MAX_BLOCK_BYTES = 1024;
 
 export interface OpticalProfile {
   id: "compat" | "default" | "dense";

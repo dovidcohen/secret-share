@@ -36,6 +36,7 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
   const keyCanvasRef = useRef<HTMLCanvasElement>(null);
   const identityRef = useRef<OpticalIdentity | null>(null);
   const decoderRef = useRef<FountainDecoder | null>(null);
+  const candidateRef = useRef<{ key: string; count: number } | null>(null);
   const finishingRef = useRef(false);
   const stopRef = useRef<(() => void) | null>(null);
 
@@ -51,13 +52,16 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
   function fail(e: unknown) {
     stopRef.current?.();
     stopRef.current = null;
+    identityRef.current = null;
     setError(e instanceof Error ? e.message : String(e));
     setPhase("error");
   }
 
   async function showKey() {
     try {
-      identityRef.current ??= await generateIdentity();
+      // Fresh ephemeral key for every pairing — the QR really is one-time,
+      // and a compromise of this tab can't unlock earlier recordings.
+      identityRef.current = await generateIdentity();
       setPhase("keyshow");
       await new Promise((r) => setTimeout(r, 0)); // wait for the canvas to mount
       await QRCode.toCanvas(keyCanvasRef.current!, encodeKeyQr(identityRef.current.publicRaw), {
@@ -93,15 +97,30 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
     }
   }
 
+  // A sender restart is a burst of consistent frames; require a few in a row
+  // before abandoning an in-progress decode so an interleaved hostile QR
+  // can't reset reception over and over.
+  const SESSION_SWITCH_FRAMES = 5;
+
   function onScan(bytes: Uint8Array) {
     if (finishingRef.current) return;
     const frame = parseFrame(bytes);
     if (!frame) return; // foreign QR in view — ignore
     let dec = decoderRef.current;
-    if (!dec || !sameSession(dec.params, frame.header)) {
-      // first lock, or the sender restarted with a new session — reset
+    if (dec && !sameSession(dec.params, frame.header)) {
+      const h = frame.header;
+      const key = `${h.sessionId}:${h.k}:${h.blockSize}:${h.totalLen}:${h.flags}`;
+      const cand = candidateRef.current;
+      candidateRef.current = cand?.key === key ? { key, count: cand.count + 1 } : { key, count: 1 };
+      if (candidateRef.current.count < SESSION_SWITCH_FRAMES) return;
+      dec = null; // consistent new stream — treat as a sender restart
+    } else {
+      candidateRef.current = null;
+    }
+    if (!dec) {
       dec = new FountainDecoder(frame.header);
       decoderRef.current = dec;
+      candidateRef.current = null;
       setNeedsEncrypted(
         (frame.header.flags & FRAME_FLAG_ENCRYPTED) !== 0 && !identityRef.current,
       );
@@ -143,6 +162,7 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
       const url = isText
         ? ""
         : URL.createObjectURL(new Blob([data.slice().buffer], { type: meta.mime || "application/octet-stream" }));
+      identityRef.current = null; // ephemeral key served its purpose
       setReceived({ meta, data, safety, url });
       setPhase("done");
     } catch (e) {
@@ -182,7 +202,14 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
         <button className="primary" onClick={() => void startScan()}>
           Sender scanned it — start camera
         </button>
-        <button onClick={() => setPhase("idle")}>Back</button>
+        <button
+          onClick={() => {
+            identityRef.current = null; // abandoning the pairing invalidates the key
+            setPhase("idle");
+          }}
+        >
+          Back
+        </button>
       </>
     );
   }
@@ -219,7 +246,16 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
             decrypted when it completes. Go back and choose “Receive encrypted”.
           </p>
         )}
-        <button onClick={() => { stopRef.current?.(); stopRef.current = null; setPhase("idle"); }}>
+        <button
+          onClick={() => {
+            stopRef.current?.();
+            stopRef.current = null;
+            identityRef.current = null;
+            decoderRef.current = null;
+            candidateRef.current = null;
+            setPhase("idle");
+          }}
+        >
           Cancel
         </button>
       </>
