@@ -1,0 +1,35 @@
+name: Live smoke
+
+# Exercises the DEPLOYED site — the class of failure CI can't see: production
+# security headers (a camera=() Permissions-Policy once shipped and silently
+# broke optical receive), the served asset chain, and a real getUserMedia
+# grant against the live policy. Run manually after a deploy, plus daily.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 7 * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @secret-share/web exec playwright install --with-deps chromium
+
+      - name: Smoke test shareasecret.io
+        run: node apps/web/test/live-smoke.mjs

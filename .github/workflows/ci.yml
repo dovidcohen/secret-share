@@ -35,6 +35,15 @@ jobs:
       - name: Build CLI
         run: pnpm --filter shareasecret build
 
+      - name: Install Playwright Chromium
+        run: pnpm --filter @secret-share/web exec playwright install --with-deps chromium
+
+      # The whole optical path — fountain encode -> QR render -> zxing-wasm
+      # decode -> fountain decode -> container open — runs canvas-to-canvas
+      # in a real Chromium, plaintext and encrypted, no camera needed.
+      - name: Optical loopback e2e
+        run: node apps/web/test/optical-loopback.mjs
+
       # The read-once lifecycle guarantees (drop survival on failed --output,
       # capture-safe stderr, claim-once) live in the e2e script — run it here
       # against a real wrangler dev so they can't regress silently.
