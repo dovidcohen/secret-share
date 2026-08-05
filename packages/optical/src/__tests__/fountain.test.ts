@@ -116,6 +116,19 @@ describe("fountain encode/decode", () => {
     expect(dec.progress.k).toBe(enc.params.k);
   });
 
+  it("peekBlock exposes a resolved block early (container-prefix reads)", () => {
+    const data = testData(10_000, 12);
+    const enc = new FountainEncoder(data, 347, 0x8888);
+    const dec = new FountainDecoder(enc.params);
+    expect(dec.peekBlock(0)).toBeNull();
+    dec.addFrame(1, enc.payload(1)); // some other block first
+    expect(dec.peekBlock(0)).toBeNull();
+    dec.addFrame(0, enc.payload(0)); // duplicates of seq 0 are fine to re-send
+    dec.addFrame(0, enc.payload(0));
+    expect(dec.peekBlock(0)).toEqual(data.subarray(0, 347));
+    expect(dec.complete).toBe(false);
+  });
+
   it("rejects payloads that exceed MAX_K blocks", () => {
     // claim a huge payload without allocating one: constructor checks first
     expect(() => new FountainEncoder(new Uint8Array((MAX_K + 1) * 10), 10, 1)).toThrow(

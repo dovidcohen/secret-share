@@ -92,8 +92,9 @@ async function openLoopback(ctx) {
   const send = page.locator("[data-testid=optical-send]");
   const recv = page.locator("[data-testid=optical-receive]");
 
-  // binary payload with high bytes — catches any charset mangling in the QR path
-  const fileBytes = Buffer.alloc(24_000);
+  // binary payload with high bytes — catches any charset mangling in the QR
+  // path; big enough that the transfer outlives the mid-stream assertions
+  const fileBytes = Buffer.alloc(60_000);
   for (let i = 0; i < fileBytes.length; i++) fileBytes[i] = (i * 7 + 250) & 0xff;
 
   // 1. receiver shows its pairing (public key) QR
@@ -116,8 +117,13 @@ async function openLoopback(ctx) {
   await send.locator("button.primary", { hasText: "Start streaming" }).click();
   await send.locator("canvas#optical-sender-canvas").waitFor({ timeout: 30_000 });
 
-  // 4. receiver starts scanning and completes
+  // 4. receiver starts scanning — the safety number must appear DURING the
+  // transfer (block 0 carries the sender key and frame 0 is re-emitted), so
+  // both parties can compare before the payload finishes landing
   await recv.locator("button.primary", { hasText: "start camera" }).click();
+  const liveSafety = (await recv.locator(".safety-number").textContent({ timeout: 60_000 })).trim();
+  const midTransfer = await recv.locator("h2", { hasText: "Scanning" }).isVisible();
+  check("B: receiver shows the safety number mid-transfer", midTransfer && liveSafety === senderSafety, `${liveSafety} (scanning=${midTransfer})`);
   await recv.locator("h2", { hasText: "Received" }).waitFor({ timeout: 120_000 });
   const recvSafety = (await recv.locator(".safety-number").textContent()).trim();
   check("B: safety numbers match on both screens", recvSafety === senderSafety, `${senderSafety} vs ${recvSafety}`);

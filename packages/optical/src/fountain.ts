@@ -220,6 +220,15 @@ export class FountainDecoder {
     }
   }
 
+  /**
+   * A single resolved block, or null if not yet decoded. Lets the receiver
+   * read the container prefix (e.g. the sender's ephemeral pubkey lives in
+   * block 0) long before the transfer completes.
+   */
+  peekBlock(index: number): Uint8Array | null {
+    return this.blocks[index] ?? null;
+  }
+
   /** Reassembled container bytes, trimmed to totalLen; throws if incomplete. */
   data(): Uint8Array {
     if (!this.complete) throw new Error("fountain decode incomplete");

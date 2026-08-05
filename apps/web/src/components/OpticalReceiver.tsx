@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import {
+  CONTAINER_FLAG_ENCRYPTED,
+  EPK_BYTES,
   FRAME_FLAG_ENCRYPTED,
   FountainDecoder,
   type FountainProgress,
@@ -29,6 +31,7 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState<FountainProgress | null>(null);
   const [needsEncrypted, setNeedsEncrypted] = useState(false);
+  const [liveSafety, setLiveSafety] = useState("");
   const [received, setReceived] = useState<Received | null>(null);
   const [error, setError] = useState("");
 
@@ -37,6 +40,7 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
   const identityRef = useRef<OpticalIdentity | null>(null);
   const decoderRef = useRef<FountainDecoder | null>(null);
   const candidateRef = useRef<{ key: string; count: number } | null>(null);
+  const derivingRef = useRef(false);
   const finishingRef = useRef(false);
   const stopRef = useRef<(() => void) | null>(null);
 
@@ -78,7 +82,9 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
     try {
       decoderRef.current = null;
       finishingRef.current = false;
+      derivingRef.current = false;
       setNeedsEncrypted(false);
+      setLiveSafety("");
       setProgress(null);
       setPhase("scanning");
       const source: FrameSource = loopback
@@ -120,16 +126,49 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
       dec = new FountainDecoder(frame.header);
       decoderRef.current = dec;
       candidateRef.current = null;
+      derivingRef.current = false;
+      setLiveSafety("");
       setNeedsEncrypted(
         (frame.header.flags & FRAME_FLAG_ENCRYPTED) !== 0 && !identityRef.current,
       );
     }
     dec.addFrame(frame.header.seq, frame.payload);
     setProgress(dec.progress);
+    maybeDeriveSafetyEarly(dec);
     if (dec.complete) {
       finishingRef.current = true;
       void finish(dec);
     }
+  }
+
+  /**
+   * The sender's ephemeral pubkey sits in the container prefix — entirely
+   * inside block 0 — so the safety number can be shown as soon as that one
+   * block decodes, not only when the whole transfer lands.
+   */
+  function maybeDeriveSafetyEarly(dec: FountainDecoder) {
+    if (derivingRef.current || !identityRef.current) return;
+    if ((dec.params.flags & FRAME_FLAG_ENCRYPTED) === 0) return;
+    const b0 = dec.peekBlock(0);
+    if (!b0 || b0.length < 6 + EPK_BYTES) return;
+    // container prefix: "OQR1", version 1, encrypted flag, then the sender epk
+    if (b0[0] !== 0x4f || b0[1] !== 0x51 || b0[2] !== 0x52 || b0[3] !== 0x31) return;
+    if (b0[4] !== 0x01 || ((b0[5] ?? 0) & CONTAINER_FLAG_ENCRYPTED) === 0) return;
+    const senderPub = b0.slice(6, 6 + EPK_BYTES);
+    if (senderPub[0] !== 0x04) return;
+    const identity = identityRef.current;
+    derivingRef.current = true;
+    void deriveOpticalKeys(
+      identity.privateKey,
+      senderPub,
+      dec.params.sessionId,
+      senderPub,
+      identity.publicRaw,
+    )
+      .then((keys) => setLiveSafety(keys.safetyNumber))
+      .catch(() => {
+        derivingRef.current = false;
+      });
   }
 
   async function finish(dec: FountainDecoder) {
@@ -239,6 +278,12 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
           <p className="muted">Looking for a stream — line up the sender's QR in view.</p>
         )}
         {!loopback && <video ref={videoRef} className="optical-video" playsInline muted />}
+        {liveSafety && (
+          <p className="muted">
+            Safety number — should match the sender's screen:{" "}
+            <span className="safety-number">{liveSafety}</span>
+          </p>
+        )}
         {needsEncrypted && (
           <p className="danger">
             This stream is encrypted and you haven't shown a pairing code — it can't be

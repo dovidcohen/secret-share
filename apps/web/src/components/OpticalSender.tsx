@@ -159,14 +159,20 @@ export function OpticalSender({ loopback }: { loopback: boolean }) {
     const enc = new FountainEncoder(container, profile.blockSize, sessionId, flags);
     setStreamInfo({ k: enc.params.k, seq: 0 });
     setPhase("streaming");
-    let seq = 0;
+    let nextSeq = 0;
+    let tick = 0;
     let rendering = false;
+    const encryptedStream = (flags & FRAME_FLAG_ENCRYPTED) !== 0;
     const timer = setInterval(() => {
       if (rendering || !canvasRef.current) return; // slow render: skip a beat, keep cadence
       rendering = true;
+      // Encrypted: re-emit frame 0 periodically. Block 0 carries the sender's
+      // pubkey, so a receiver that joins mid-stream can show the safety number
+      // right away instead of only at completion. Duplicates are deduped.
+      tick++;
+      const seq = encryptedStream && tick % 24 === 0 ? 0 : nextSeq++;
       const frame = packFrame(enc.params, seq, enc.payload(seq));
-      const current = seq;
-      seq++;
+      const current = tick - 1; // display counts frames sent, not the (re-emitted) seq
       QRCode.toCanvas(
         canvasRef.current,
         [{ data: new Uint8ClampedArray(frame.buffer, frame.byteOffset, frame.byteLength), mode: "byte" }],
@@ -275,9 +281,9 @@ export function OpticalSender({ loopback }: { loopback: boolean }) {
       <>
         <h2>Paired — check before sending</h2>
         <p className="muted">
-          This safety number was derived from the pairing. The receiver will show the
-          same one when the transfer completes — if you want certainty it's their
-          device you paired with (not a swapped code), glance at their screen after.
+          This safety number was derived from the pairing. The receiver's screen shows
+          the same number moments after scanning begins — if you want certainty it's
+          their device you paired with (not a swapped code), compare before it finishes.
         </p>
         <p className="safety-number" style={{ textAlign: "center" }}>{safety}</p>
         <button
