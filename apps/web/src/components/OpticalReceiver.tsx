@@ -13,7 +13,7 @@ import {
   parseFrame,
   sameSession,
 } from "@secret-share/optical";
-import { cameraSource, canvasSource, type FrameSource } from "../lib/scanner.js";
+import { cameraSource, canvasSource, waitForMount, type FrameSource } from "../lib/scanner.js";
 import { CopyButton } from "./CopyButton.js";
 
 type Phase = "idle" | "keyshow" | "scanning" | "done" | "error";
@@ -63,8 +63,8 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
       // and a compromise of this tab can't unlock earlier recordings.
       identityRef.current = await generateIdentity();
       setPhase("keyshow");
-      await new Promise((r) => setTimeout(r, 0)); // wait for the canvas to mount
-      await QRCode.toCanvas(keyCanvasRef.current!, encodeKeyQr(identityRef.current.publicRaw), {
+      const keyCanvas = await waitForMount(() => keyCanvasRef.current);
+      await QRCode.toCanvas(keyCanvas, encodeKeyQr(identityRef.current.publicRaw), {
         errorCorrectionLevel: "M",
         margin: 2,
         scale: 5,
@@ -81,10 +81,9 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
       setNeedsEncrypted(false);
       setProgress(null);
       setPhase("scanning");
-      await new Promise((r) => setTimeout(r, 0)); // wait for the <video> to mount
       const source: FrameSource = loopback
         ? canvasSource("optical-sender-canvas")
-        : cameraSource(videoRef.current!);
+        : cameraSource(await waitForMount(() => videoRef.current));
       stopRef.current = await source.start((results) => {
         for (const r of results) onScan(r.bytes);
       });

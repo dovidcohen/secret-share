@@ -57,9 +57,30 @@ const cameraLive = await page
   .waitFor({ timeout: 20_000 })
   .then(() => true)
   .catch(() => false);
-check("camera pipeline starts on the deployed site", cameraLive);
+check("receiver camera pipeline starts on the deployed site", cameraLive);
 if (!cameraLive) {
   const err = await page.locator("p.danger").textContent().catch(() => "(no error shown)");
+  console.log(`      page error: ${err}`);
+}
+
+// --- 4. sender key-scan camera (regression: null video ref on phase switch) ---
+const page2 = await ctx.newPage();
+await page2.goto(`${BASE}/qr`);
+await page2.fill("textarea", "smoke test");
+await page2.check("input[type=checkbox]");
+await page2.click("button.primary:has-text('Scan receiver')");
+const keyscanLive = await page2
+  .locator("h2", { hasText: "pairing code" })
+  .waitFor({ timeout: 20_000 })
+  .then(async () => {
+    // give the camera attach a moment to fail if it's going to
+    await new Promise((r) => setTimeout(r, 2_000));
+    return !(await page2.locator("h2", { hasText: "Something went wrong" }).isVisible());
+  })
+  .catch(() => false);
+check("sender key-scan camera starts on the deployed site", keyscanLive);
+if (!keyscanLive) {
+  const err = await page2.locator("p.danger").textContent().catch(() => "(no error shown)");
   console.log(`      page error: ${err}`);
 }
 await browser.close();

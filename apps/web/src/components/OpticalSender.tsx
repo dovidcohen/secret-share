@@ -14,7 +14,7 @@ import {
   parseKeyQr,
   sealContainer,
 } from "@secret-share/optical";
-import { cameraSource, canvasSource, type FrameSource } from "../lib/scanner.js";
+import { cameraSource, canvasSource, waitForMount, type FrameSource } from "../lib/scanner.js";
 
 type Phase = "compose" | "keyscan" | "confirm" | "streaming" | "error";
 
@@ -112,11 +112,9 @@ export function OpticalSender({ loopback }: { loopback: boolean }) {
       // Encrypted: scan the receiver's key QR first. Public keys only — a
       // camera recording both screens learns nothing useful.
       setPhase("keyscan");
-      // wait a tick so the <video> is mounted
-      await new Promise((r) => setTimeout(r, 0));
       const source: FrameSource = loopback
         ? canvasSource("optical-receiver-key")
-        : cameraSource(videoRef.current!);
+        : cameraSource(await waitForMount(() => videoRef.current));
       const stopScan = await source.start((results) => {
         for (const r of results) {
           const receiverPub = parseKeyQr(r.text);

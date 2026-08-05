@@ -46,6 +46,20 @@ export class QrDecoder {
 }
 
 /**
+ * Wait for a ref-held element to be mounted. A state change only schedules a
+ * React commit — one setTimeout(0) is NOT guaranteed to land after it
+ * (observed on Android Chrome), so poll briefly instead of assuming.
+ */
+export async function waitForMount<T>(get: () => T | null | undefined): Promise<T> {
+  for (let i = 0; i < 100; i++) {
+    const el = get();
+    if (el) return el;
+    await new Promise((r) => setTimeout(r, 16));
+  }
+  throw new Error("view failed to mount");
+}
+
+/**
  * A stream of decoded QR results. `camera` is the real thing; `canvas` reads
  * a same-page canvas so tests (and ?loopback mode) can exercise the full
  * render → decode path without camera hardware.
