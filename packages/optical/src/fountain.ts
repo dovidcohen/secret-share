@@ -98,9 +98,16 @@ interface PendingFrame {
 }
 
 export interface FountainProgress {
+  /**
+   * Blocks fully decoded. Misleading as a progress bar when locking on
+   * mid-stream: peeling holds coded frames pending until coverage suffices,
+   * then resolves in one cascade — use `collected` for smooth progress.
+   */
   resolved: number;
   k: number;
   framesSeen: number;
+  /** Frames accepted as (probably) innovative — climbs ~1 per useful frame toward ~k. */
+  collected: number;
 }
 
 export class FountainDecoder {
@@ -108,6 +115,7 @@ export class FountainDecoder {
   private readonly cdf: Float64Array;
   private readonly blocks: (Uint8Array | null)[];
   private resolvedCount = 0;
+  private collectedCount = 0;
   private readonly seen = new Set<number>();
   private readonly byBlock = new Map<number, Set<PendingFrame>>();
 
@@ -123,7 +131,12 @@ export class FountainDecoder {
   }
 
   get progress(): FountainProgress {
-    return { resolved: this.resolvedCount, k: this.params.k, framesSeen: this.seen.size };
+    return {
+      resolved: this.resolvedCount,
+      k: this.params.k,
+      framesSeen: this.seen.size,
+      collected: this.collectedCount,
+    };
   }
 
   /** Ingest one frame payload; returns true if it advanced decoding. */
@@ -142,6 +155,7 @@ export class FountainDecoder {
       else unknowns.add(idx);
     }
     if (unknowns.size === 0) return false; // fully redundant
+    this.collectedCount++;
 
     if (unknowns.size === 1) {
       this.resolve(unknowns.values().next().value as number, data);

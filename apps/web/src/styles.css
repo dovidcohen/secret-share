@@ -34,8 +34,11 @@ header { text-align: center; margin-bottom: 1.5rem; }
 h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
 .logo { color: var(--accent); }
 .tagline { color: var(--muted); margin: 0 0 1rem; }
-nav { display: inline-flex; gap: 0.25rem; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem; }
-.tab { border: none; background: transparent; color: var(--muted); padding: 0.4rem 1.2rem; border-radius: 999px; cursor: pointer; font-size: 0.95rem; }
+nav { display: inline-flex; flex-wrap: wrap; justify-content: center; max-width: 100%; gap: 0.25rem; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem; }
+.tab { border: none; background: transparent; color: var(--muted); padding: 0.4rem 1.2rem; border-radius: 999px; cursor: pointer; font-size: 0.95rem; white-space: nowrap; }
+@media (max-width: 480px) {
+  .tab { padding: 0.45rem 0.7rem; font-size: 0.88rem; }
+}
 .tab.active { background: var(--accent); color: #fff; }
 
 .card {
@@ -135,6 +138,8 @@ button.danger-outline { color: var(--danger); border-color: var(--danger); backg
 }
 .optical-video {
   width: 100%;
+  max-height: 35vh; /* portrait phone cameras produce tall streams — keep the status in view */
+  object-fit: cover;
   border-radius: 8px;
   background: #000;
 }
@@ -168,6 +173,6 @@ footer { margin-top: 1.5rem; text-align: center; }
 /* Touch devices: 44px minimum tap targets (Apple HIG). */
 @media (pointer: coarse) {
   button { min-height: 44px; padding: 0.65rem 1.1rem; }
-  .tab { padding: 0.6rem 1.4rem; }
+  .tab { padding: 0.6rem 1rem; }
   select { min-height: 40px; font-size: 16px; }
 }

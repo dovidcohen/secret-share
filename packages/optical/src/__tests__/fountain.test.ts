@@ -54,11 +54,17 @@ describe("fountain encode/decode", () => {
     const data = testData(20_000, 3);
     const enc = new FountainEncoder(data, 347, 0x3333);
     const dec = new FountainDecoder(enc.params);
+    let lastCollected = 0;
     for (let seq = 137; !dec.complete; seq++) {
       dec.addFrame(seq, enc.payload(seq));
+      // `collected` is the smooth progress signal: monotone, no end-avalanche
+      expect(dec.progress.collected).toBeGreaterThanOrEqual(lastCollected);
+      lastCollected = dec.progress.collected;
       expect(seq).toBeLessThan(137 + enc.params.k * 3); // must terminate
     }
     expect(dec.data()).toEqual(data);
+    // nearly every pre-completion frame should have counted toward progress
+    expect(lastCollected).toBeGreaterThanOrEqual(enc.params.k * 0.9);
   });
 
   it("ignores duplicate frames", () => {

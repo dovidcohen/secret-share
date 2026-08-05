@@ -188,23 +188,31 @@ export function OpticalReceiver({ loopback }: { loopback: boolean }) {
   }
 
   if (phase === "scanning") {
-    const pct = progress ? Math.round((progress.resolved / progress.k) * 100) : 0;
+    // `resolved` avalanches at the end when locking on mid-stream; `collected`
+    // climbs one per useful frame, so the bar reflects actual accumulation.
+    // Cap at 97% — the exact finish point isn't knowable until it happens.
+    const pct = progress
+      ? Math.min(
+          97,
+          Math.round((Math.max(progress.resolved, progress.collected) / progress.k) * 100),
+        )
+      : 0;
     return (
       <>
         <h2>Scanning…</h2>
-        {!loopback && <video ref={videoRef} className="optical-video" playsInline muted />}
         {progress ? (
           <>
             <div className="progress-track">
               <div className="progress-fill" style={{ width: `${pct}%` }} />
             </div>
             <p className="muted">
-              {progress.resolved} / {progress.k} blocks · {progress.framesSeen} frames seen
+              ~{pct}% · {progress.framesSeen} frames captured
             </p>
           </>
         ) : (
           <p className="muted">Looking for a stream — line up the sender's QR in view.</p>
         )}
+        {!loopback && <video ref={videoRef} className="optical-video" playsInline muted />}
         {needsEncrypted && (
           <p className="danger">
             This stream is encrypted and you haven't shown a pairing code — it can't be
