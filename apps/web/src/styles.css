@@ -122,6 +122,37 @@ button.danger-outline { color: var(--danger); border-color: var(--danger); backg
   padding: 6px;
 }
 
+/* Optical (QR) transfer */
+.optical-stage { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+.optical-stage canvas {
+  image-rendering: pixelated; /* integral module edges survive CSS scaling */
+  width: 100%;
+  max-width: 440px;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff; /* QR quiet zone must stay light in dark mode */
+}
+.optical-video {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+.progress-track {
+  height: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-fill { height: 100%; background: var(--accent); transition: width 0.2s; }
+.safety-number {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 1.2rem;
+  letter-spacing: 0.25em;
+  color: var(--text);
+}
+
 .faq details {
   border: 1px solid var(--border);
   border-radius: 8px;

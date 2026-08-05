@@ -12,10 +12,12 @@
   },
   "dependencies": {
     "@secret-share/crypto": "workspace:*",
+    "@secret-share/optical": "workspace:*",
     "@secret-share/protocol": "workspace:*",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zxing-wasm": "^3.1.2"
   },
   "devDependencies": {
     "@types/qrcode": "^1.5.6",

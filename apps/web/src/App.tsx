@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { Send } from "./pages/Send.js";
 import { Receive } from "./pages/Receive.js";
+import { Optical } from "./pages/Optical.js";
 import { Faq } from "./pages/Faq.js";
 
-function initialRoute(): { mode: "send" | "receive"; code: string } {
+function initialRoute(): { mode: "send" | "receive" | "qr"; code: string } {
+  if (location.pathname.startsWith("/qr")) {
+    return { mode: "qr", code: "" };
+  }
   const code = location.hash.slice(1);
   if (location.pathname.startsWith("/r") || code.length > 0) {
     // Take the code into memory and scrub it from the address bar so the full
@@ -18,7 +22,7 @@ function initialRoute(): { mode: "send" | "receive"; code: string } {
 
 export function App() {
   const [route] = useState(initialRoute);
-  const [mode, setMode] = useState<"send" | "receive" | "faq">(route.mode);
+  const [mode, setMode] = useState<"send" | "receive" | "qr" | "faq">(route.mode);
 
   return (
     <main>
@@ -40,6 +44,9 @@ export function App() {
           >
             Receive
           </button>
+          <button className={mode === "qr" ? "tab active" : "tab"} onClick={() => setMode("qr")}>
+            QR Transfer
+          </button>
           <button className={mode === "faq" ? "tab active" : "tab"} onClick={() => setMode("faq")}>
             How it works
           </button>
@@ -47,6 +54,7 @@ export function App() {
       </header>
       {mode === "send" && <Send />}
       {mode === "receive" && <Receive initialCode={route.code} />}
+      {mode === "qr" && <Optical />}
       {mode === "faq" && <Faq />}
       <footer>
         <p className="muted">
