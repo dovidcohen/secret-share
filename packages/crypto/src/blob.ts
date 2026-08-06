@@ -1,4 +1,4 @@
-import type { DerivedKeys } from "./kdf.js";
+import { boundMailboxId, type DerivedKeys } from "./kdf.js";
 import { concatBytes, randomBytes, utf8 } from "./encoding.js";
 
 export const BLOB_VERSION = 0x01;
@@ -9,13 +9,13 @@ export class SecretTooLargeError extends Error {
   override name = "SecretTooLargeError";
 }
 
-function aad(mailboxId: string): Uint8Array {
-  return utf8(`secret-share/v1/blob/${mailboxId}`);
+function aad(mailboxId: string, context?: string): Uint8Array {
+  return utf8(`secret-share/v1/blob/${boundMailboxId(mailboxId, context)}`);
 }
 
 /** Output layout: [1B version][12B IV][AES-256-GCM ciphertext+tag]. */
 export async function encryptSecret(
-  keys: Pick<DerivedKeys, "kBlob" | "mailboxId">,
+  keys: Pick<DerivedKeys, "kBlob" | "mailboxId" | "context">,
   plaintext: Uint8Array,
 ): Promise<Uint8Array> {
   if (plaintext.length > MAX_SECRET_BYTES) {
@@ -23,7 +23,7 @@ export async function encryptSecret(
   }
   const iv = randomBytes(IV_BYTES);
   const ct = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource, additionalData: aad(keys.mailboxId) as BufferSource },
+    { name: "AES-GCM", iv: iv as BufferSource, additionalData: aad(keys.mailboxId, keys.context) as BufferSource },
     keys.kBlob,
     plaintext as BufferSource,
   );
@@ -36,7 +36,7 @@ export class BlobFormatError extends Error {
 
 /** Throws (WebCrypto OperationError) on any tamper — wrong key, flipped bit, wrong mailbox. */
 export async function decryptSecret(
-  keys: Pick<DerivedKeys, "kBlob" | "mailboxId">,
+  keys: Pick<DerivedKeys, "kBlob" | "mailboxId" | "context">,
   blob: Uint8Array,
 ): Promise<Uint8Array> {
   if (blob.length < 1 + IV_BYTES + 16 || blob[0] !== BLOB_VERSION) {
@@ -45,7 +45,7 @@ export async function decryptSecret(
   const iv = blob.subarray(1, 1 + IV_BYTES);
   const ct = blob.subarray(1 + IV_BYTES);
   const pt = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as BufferSource, additionalData: aad(keys.mailboxId) as BufferSource },
+    { name: "AES-GCM", iv: iv as BufferSource, additionalData: aad(keys.mailboxId, keys.context) as BufferSource },
     keys.kBlob,
     ct as BufferSource,
   );

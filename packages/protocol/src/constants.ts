@@ -13,6 +13,13 @@ export const MAX_TTL_SECONDS = 604_800; // 7d
 /** Failed claim-tag presentations before the drop is burned. */
 export const MAX_CLAIM_ATTEMPTS = 5;
 
+/** Failed guest-grant token presentations before the grant is burned. */
+export const MAX_GRANT_ATTEMPTS = 5;
+
+/** Guest-send grant lifetime bounds (tenant "request a secret" links). */
+export const DEFAULT_GRANT_TTL_SECONDS = 86_400; // 24h
+export const MAX_GRANT_TTL_SECONDS = 604_800; // 7d
+
 /** Crockford base32, 8 chars = 40 bits (no I, L, O, U). */
 export const MAILBOX_ID_REGEX = /^[0-9A-HJKMNP-TV-Z]{8}$/;
 
@@ -34,4 +41,9 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "GONE"
   | "BAD_TAG"
-  | "TOO_LARGE";
+  | "TOO_LARGE"
+  | "AUTH_REQUIRED"
+  | "BAD_GRANT"
+  | "GRANT_EXISTS"
+  | "GRANT_USED"
+  | "GRANT_EXPIRED";

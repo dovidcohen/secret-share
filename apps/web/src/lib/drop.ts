@@ -19,6 +19,17 @@ export class BadTagError extends Error {
     super(`Wrong code, ${attemptsLeft} attempts left`);
   }
 }
+/** Tenant host said 401: the SSO session lapsed mid-flow. */
+export class SessionExpiredError extends Error {
+  override name = "SessionExpiredError";
+}
+/** A guest-send grant was refused; `reason` drives the copy on the /give page. */
+export class GrantRejectedError extends Error {
+  override name = "GrantRejectedError";
+  constructor(public reason: "used" | "expired" | "invalid") {
+    super(`Grant rejected: ${reason}`);
+  }
+}
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -27,6 +38,7 @@ export async function parkDrop(
   keys: DerivedKeys,
   blob: Uint8Array,
   ttlSeconds: number,
+  opts: { grant?: string } = {},
 ): Promise<number> {
   const [claimTagHash, senderTagHash] = await Promise.all([
     tagHash(keys.claimTag),
@@ -34,7 +46,8 @@ export async function parkDrop(
   ]);
   const res = await fetch(`/api/drops/${keys.mailboxId}`, {
     method: "PUT",
-    headers: JSON_HEADERS,
+    // The grant rides a header, never the URL — URLs end up in logs.
+    headers: opts.grant ? { ...JSON_HEADERS, "X-Guest-Grant": opts.grant } : JSON_HEADERS,
     body: JSON.stringify({
       claimTagHash,
       senderTagHash,
@@ -42,6 +55,17 @@ export async function parkDrop(
       ttlSeconds,
     }),
   });
+  if (res.status === 401) throw new SessionExpiredError();
+  if (res.status === 403) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new GrantRejectedError(
+      body?.error === "GRANT_USED"
+        ? "used"
+        : body?.error === "GRANT_EXPIRED"
+          ? "expired"
+          : "invalid",
+    );
+  }
   if (res.status === 409) throw new DropExistsError();
   if (!res.ok) throw new Error(`Create failed (${res.status})`);
   return CreateDropResponseSchema.parse(await res.json()).expiresAt;

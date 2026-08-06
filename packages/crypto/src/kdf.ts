@@ -16,6 +16,13 @@ const V = "secret-share/v1";
 
 export interface DerivedKeys {
   mailboxId: string;
+  /**
+   * Optional derivation context (e.g. a tenant id on white-label hosts).
+   * Binds every derived key and the blob AAD to the namespace the code was
+   * minted in, so ciphertext can't be transplanted across namespaces.
+   * Undefined reproduces the original public derivation byte-for-byte.
+   */
+  context?: string;
   /** AES-256-GCM key for the parked (async) blob. */
   kBlob: CryptoKey;
   /** Root key material for live-session key derivation (mixed with per-session salts). */
@@ -98,13 +105,20 @@ async function argon2id(password: string, salt: Uint8Array): Promise<Uint8Array>
   });
 }
 
+/** "tenant:XKQ2M7PT" under a context, plain "XKQ2M7PT" without — the shared binding string. */
+export function boundMailboxId(mailboxId: string, context?: string): string {
+  return context ? `${context}:${mailboxId}` : mailboxId;
+}
+
 /**
  * code -> Argon2id (salted by mailbox id, so brute force is per-mailbox) -> HKDF fan-out.
  * The words are the password; the server-visible mailbox id contributes no key entropy.
+ * A context (tenant id) prefixes both salts, keeping namespaces cryptographically disjoint.
  */
-export async function deriveKeys(code: ShareCode): Promise<DerivedKeys> {
-  const ikm = await argon2id(code.words.join(" "), utf8(`${V}/${code.mailboxId}`));
-  const salt = utf8(code.mailboxId);
+export async function deriveKeys(code: ShareCode, context?: string): Promise<DerivedKeys> {
+  const bound = boundMailboxId(code.mailboxId, context);
+  const ikm = await argon2id(code.words.join(" "), utf8(`${V}/${bound}`));
+  const salt = utf8(bound);
   const [blobRaw, sessionIkm, claimRaw, senderRaw] = await Promise.all([
     hkdfBits(ikm, salt, `${V}/blob`, 32),
     hkdfBits(ikm, salt, `${V}/session`, 32),
@@ -113,6 +127,7 @@ export async function deriveKeys(code: ShareCode): Promise<DerivedKeys> {
   ]);
   return {
     mailboxId: code.mailboxId,
+    context,
     kBlob: await aesKey(blobRaw),
     sessionIkm,
     claimTag: toB64url(claimRaw),
@@ -153,9 +168,10 @@ export async function confirmationMac(
   senderSalt: Uint8Array,
   receiverSalt: Uint8Array,
   role: "sender" | "receiver",
+  context?: string,
 ): Promise<Uint8Array> {
   const transcript = concatBytes(
-    utf8(`${V}/confirm/${role}/${mailboxId}/`),
+    utf8(`${V}/confirm/${role}/${boundMailboxId(mailboxId, context)}/`),
     senderSalt,
     receiverSalt,
   );

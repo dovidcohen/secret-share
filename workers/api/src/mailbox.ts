@@ -3,7 +3,10 @@ import {
   ClientMessageSchema,
   CreateDropRequestSchema,
   ClaimRequestSchema,
+  DEFAULT_GRANT_TTL_SECONDS,
   MAX_CLAIM_ATTEMPTS,
+  MAX_GRANT_ATTEMPTS,
+  MAX_GRANT_TTL_SECONDS,
   RevokeRequestSchema,
   RoleSchema,
   WS_CLOSE_REPLACED,
@@ -20,6 +23,18 @@ interface DropRecord {
   senderTagHash: string;
   createdAt: number;
   expiresAt: number;
+}
+
+/**
+ * One-time guest-send authorization ("request a secret" on tenant hosts).
+ * Only the SHA-256 of the 32-byte token is stored; consuming it and writing
+ * the drop happen in the same DO event, so a grant can never park two drops.
+ */
+interface GrantRecord {
+  tokenHash: string;
+  createdAt: number;
+  expiresAt: number;
+  failedAttempts: number;
 }
 
 interface SocketState {
@@ -89,6 +104,9 @@ export class MailboxDO extends DurableObject<Env> {
     if (pathname === "/internal/turn-verify" && request.method === "POST") {
       return this.handleTurnVerify(request);
     }
+    if (pathname === "/internal/grant-create" && request.method === "POST") {
+      return this.handleGrantCreate(request);
+    }
     if (pathname.endsWith("/claim") && request.method === "POST") {
       return this.handleClaim(request);
     }
@@ -109,11 +127,27 @@ export class MailboxDO extends DurableObject<Env> {
     );
     if (!body.success) return json(400, { error: "BAD_REQUEST" });
 
+    // Set by the Worker (never forwarded from the client): "public",
+    // "session", or "grant <token>" — the guest-send path.
+    const auth = request.headers.get("x-ss-auth") ?? "public";
+    const grantToken = auth.startsWith("grant ") ? auth.slice(6) : null;
+
     const [drop, tombstone] = await Promise.all([
       this.ctx.storage.get<DropRecord>("drop"),
       this.ctx.storage.get<boolean>("tombstone"),
     ]);
-    if (drop || tombstone) return json(409, { error: "DROP_EXISTS" });
+    if (drop || tombstone) {
+      // A guest retrying a request link deserves better copy than DROP_EXISTS:
+      // something already landed in this mailbox, so the link was used.
+      return grantToken
+        ? json(403, { error: "GRANT_USED" })
+        : json(409, { error: "DROP_EXISTS" });
+    }
+
+    if (grantToken) {
+      const denied = await this.consumeGrant(grantToken);
+      if (denied) return denied;
+    }
 
     const now = Date.now();
     const record: DropRecord = {
@@ -185,6 +219,78 @@ export class MailboxDO extends DurableObject<Env> {
     }
     await this.burnDrop();
     return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+  }
+
+  // ---------- guest-send grants ----------
+
+  /**
+   * Internal-only (the Worker verifies the employee's session before calling).
+   * At most one outstanding grant per mailbox; the raw token is returned once
+   * and only its hash persists.
+   */
+  private async handleGrantCreate(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as {
+      ttlSeconds?: number;
+    } | null;
+    const ttlSeconds = Math.min(
+      Math.max(Math.floor(body?.ttlSeconds ?? DEFAULT_GRANT_TTL_SECONDS), 60),
+      MAX_GRANT_TTL_SECONDS,
+    );
+
+    const [drop, tombstone, existing] = await Promise.all([
+      this.ctx.storage.get<DropRecord>("drop"),
+      this.ctx.storage.get<boolean>("tombstone"),
+      this.ctx.storage.get<GrantRecord>("grant"),
+    ]);
+    if (drop || tombstone) return json(409, { error: "DROP_EXISTS" });
+    if (existing && existing.expiresAt > Date.now()) {
+      return json(409, { error: "GRANT_EXISTS" });
+    }
+
+    const raw = new Uint8Array(32);
+    crypto.getRandomValues(raw);
+    const token = toB64url(raw);
+    const now = Date.now();
+    const record: GrantRecord = {
+      tokenHash: await sha256B64url(token),
+      createdAt: now,
+      expiresAt: now + ttlSeconds * 1000,
+      failedAttempts: 0,
+    };
+    await this.ctx.storage.put("grant", record);
+    // Sweep the grant when it lapses (unless an earlier alarm already exists).
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null || alarm > record.expiresAt) {
+      await this.ctx.storage.setAlarm(record.expiresAt);
+    }
+    return json(201, { grant: token, expiresAt: record.expiresAt });
+  }
+
+  /** Null when the token is valid (and consumed); an error response otherwise. */
+  private async consumeGrant(token: string): Promise<Response | null> {
+    const grant = await this.ctx.storage.get<GrantRecord>("grant");
+    if (!grant || grant.expiresAt <= Date.now()) {
+      return json(403, { error: "GRANT_EXPIRED" });
+    }
+    const presented = await sha256B64url(token);
+    const ok = constantTimeEqual(
+      fromB64url(presented),
+      fromB64url(grant.tokenHash),
+    );
+    if (!ok) {
+      // 256-bit tokens make brute force moot; the counter mirrors the claim
+      // path's house style anyway.
+      const failed = grant.failedAttempts + 1;
+      if (failed >= MAX_GRANT_ATTEMPTS) {
+        await this.ctx.storage.delete("grant");
+      } else {
+        await this.ctx.storage.put("grant", { ...grant, failedAttempts: failed });
+      }
+      return json(403, { error: "BAD_GRANT" });
+    }
+    // Single-use: consumed in the same DO event that writes the drop.
+    await this.ctx.storage.delete("grant");
+    return null;
   }
 
   /**

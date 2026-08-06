@@ -1,8 +1,10 @@
 import { z } from "zod";
 import {
+  DEFAULT_GRANT_TTL_SECONDS,
   DEFAULT_TTL_SECONDS,
   MAILBOX_ID_REGEX,
   MAX_CIPHERTEXT_B64_CHARS,
+  MAX_GRANT_TTL_SECONDS,
   MAX_TTL_SECONDS,
   MIN_TTL_SECONDS,
 } from "./constants.js";
@@ -61,6 +63,45 @@ export const ApiErrorSchema = z.object({
   attemptsLeft: z.number().int().optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+/** Guest-send grant token: 32 random bytes, base64url-unpadded (tenant hosts only). */
+export const GrantTokenSchema = b64url(43);
+
+/** Body of POST /api/grants — mints a one-time unauthenticated-PUT grant (session required). */
+export const CreateGrantRequestSchema = z.object({
+  mailboxId: MailboxIdSchema,
+  ttlSeconds: z
+    .number()
+    .int()
+    .min(MIN_TTL_SECONDS)
+    .max(MAX_GRANT_TTL_SECONDS)
+    .default(DEFAULT_GRANT_TTL_SECONDS),
+});
+export type CreateGrantRequest = z.infer<typeof CreateGrantRequestSchema>;
+
+export const CreateGrantResponseSchema = z.object({
+  grant: GrantTokenSchema,
+  expiresAt: z.number(), // epoch ms
+});
+export type CreateGrantResponse = z.infer<typeof CreateGrantResponseSchema>;
+
+/**
+ * Tenant branding injected into index.html as a JSON data block
+ * (<script type="application/json" id="tenant-config">) and read by the SPA.
+ */
+export const TenantBrandingSchema = z.object({
+  tenantId: z.string(),
+  name: z.string(),
+  productName: z.string(),
+  logoUrl: z.string().nullable(),
+  primaryColor: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i)
+    .nullable(),
+  footerText: z.string().nullable(),
+  idpLabel: z.string(),
+});
+export type TenantBranding = z.infer<typeof TenantBrandingSchema>;
 
 /** POST /api/turn — requires a turnToken issued on the signaling socket. */
 export const TurnRequestSchema = z.object({

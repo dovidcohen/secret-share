@@ -1,9 +1,27 @@
+import { useTenant } from "../lib/tenant.js";
+
 export function Faq() {
+  const tenant = useTenant();
   return (
     <section className="card faq">
       <h2>How it works</h2>
 
-      <details open>
+      {tenant && (
+        <details open>
+          <summary>Who runs this?</summary>
+          <p>
+            This is {tenant.name}'s private secret-sharing service, built on the
+            Secret Share platform. Encryption happens in your browser, so even{" "}
+            {tenant.name}'s IT and the platform operator only ever see ciphertext.
+            Sending a secret from here requires a {tenant.name} sign-in; receiving
+            one never does. When a {tenant.name} employee requests a secret from
+            you via a one-time link, the service records who created the request
+            and when — never the secret itself.
+          </p>
+        </details>
+      )}
+
+      <details open={!tenant}>
         <summary>What happens when I share a secret?</summary>
         <p>
           Your browser generates a share code, derives an encryption key from it, and
@@ -83,6 +101,7 @@ export function Faq() {
         </p>
       </details>
 
+      {!tenant && (
       <details>
         <summary>Is there a command-line version?</summary>
         <p>
@@ -94,6 +113,7 @@ export function Faq() {
           <a href="/guides/cli">CLI guide</a> for full directions.
         </p>
       </details>
+      )}
 
       <details>
         <summary>How big can a secret be, and what should I use this for?</summary>

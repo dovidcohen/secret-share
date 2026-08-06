@@ -7,7 +7,11 @@
   "workers_dev": false,
   "routes": [
     { "pattern": "shareasecret.io", "custom_domain": true },
-    { "pattern": "www.shareasecret.io", "custom_domain": true }
+    { "pattern": "www.shareasecret.io", "custom_domain": true },
+    // White-label tenant subdomains (needs the proxied `*` CNAME in DNS).
+    // Custom hostnames (secrets.customer.com) get their own route entries via
+    // scripts/provision-tenant.mjs once Cloudflare for SaaS is enabled.
+    { "pattern": "*.shareasecret.io/*", "zone_name": "shareasecret.io" }
   ],
   // run_worker_first: true so the Worker can stamp security headers on every
   // asset response, not just API routes.
@@ -34,8 +38,14 @@
     ]
   },
   "durable_objects": {
-    "bindings": [{ "name": "MAILBOX", "class_name": "MailboxDO" }]
+    "bindings": [
+      { "name": "MAILBOX", "class_name": "MailboxDO" },
+      { "name": "USAGE", "class_name": "UsageDO" }
+    ]
   },
+  // Tenant registry (white-label SaaS): host:<hostname>, tenant:<id>,
+  // logo:<id>, plus cached OIDC discovery/JWKS documents.
+  "kv_namespaces": [{ "binding": "TENANTS", "id": "aa9ecd5b4bf84ae6aa6b13b1df939573" }],
   // Usage alert: check request volume against the free-tier daily cap.
   "triggers": { "crons": ["7 */6 * * *"] },
   // No destination_address here: it can send to any verified Email Routing
@@ -46,6 +56,9 @@
     "USAGE_ALERT_THRESHOLD": "80000",
     "ALERT_FROM": "alerts@shareasecret.io"
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MailboxDO"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MailboxDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["UsageDO"] }
+  ],
   "observability": { "enabled": true }
 }

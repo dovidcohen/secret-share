@@ -15,6 +15,7 @@ import {
 } from "../lib/drop.js";
 import { Signaling } from "../lib/ws.js";
 import { receiverLiveTransfer } from "../lib/rtc.js";
+import { useTenant } from "../lib/tenant.js";
 import { CopyButton } from "../components/CopyButton.js";
 
 type Phase =
@@ -28,6 +29,7 @@ type Phase =
   | "error";
 
 export function Receive({ initialCode }: { initialCode: string }) {
+  const tenant = useTenant();
   const [phase, setPhase] = useState<Phase>("input");
   const [codeInput, setCodeInput] = useState(initialCode);
   const [secret, setSecret] = useState("");
@@ -35,6 +37,8 @@ export function Receive({ initialCode }: { initialCode: string }) {
   const [error, setError] = useState("");
   const signalingRef = useRef<Signaling | null>(null);
   const startedRef = useRef(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveBusyRef = useRef(false);
 
   useEffect(() => {
     // startedRef guards StrictMode's double effect-invocation in dev: a second
@@ -43,16 +47,44 @@ export function Receive({ initialCode }: { initialCode: string }) {
       startedRef.current = true;
       void retrieve(initialCode);
     }
-    return () => signalingRef.current?.close();
+    return () => {
+      signalingRef.current?.close();
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * While waiting, senders that park without joining signaling (the CLI, and
+   * guest-send links) would otherwise go unnoticed — probe the mailbox gently.
+   */
+  function startWaitingPoll(keys: DerivedKeys): void {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      if (liveBusyRef.current) return;
+      void (async () => {
+        try {
+          const blob = await claimDrop(keys);
+          if (pollRef.current) clearInterval(pollRef.current);
+          finish(new TextDecoder().decode(await decryptSecret(keys, blob)), "drop");
+        } catch (e) {
+          if (e instanceof DropGoneError) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setError("This secret was already retrieved, destroyed, or has expired.");
+            setPhase("error");
+          }
+          // 404 or transient failure: keep waiting.
+        }
+      })();
+    }, 5000);
+  }
 
   async function retrieve(raw: string) {
     setError("");
     setPhase("deriving");
     let keys: DerivedKeys;
     try {
-      keys = await deriveKeys(parseCode(raw));
+      keys = await deriveKeys(parseCode(raw), tenant?.tenantId);
     } catch (e) {
       setError(
         e instanceof CodeFormatError
@@ -112,13 +144,19 @@ export function Receive({ initialCode }: { initialCode: string }) {
       // 404 or transient error: fall through to waiting for the sender.
     }
     setPhase("waiting");
+    startWaitingPoll(keys);
     signaling.on((msg) => {
       if (msg.t === "peer-joined") {
         void (async () => {
+          liveBusyRef.current = true;
           setPhase("live");
-          const got = await tryLive(signaling, keys);
-          if (got !== null) finish(new TextDecoder().decode(got), "live");
-          else await claim(keys); // sender may have parked it just now
+          try {
+            const got = await tryLive(signaling, keys);
+            if (got !== null) finish(new TextDecoder().decode(got), "live");
+            else await claim(keys); // sender may have parked it just now
+          } finally {
+            liveBusyRef.current = false;
+          }
         })();
       }
     });
@@ -162,6 +200,7 @@ export function Receive({ initialCode }: { initialCode: string }) {
   }
 
   function finish(text: string, how: "live" | "drop") {
+    if (pollRef.current) clearInterval(pollRef.current);
     signalingRef.current?.close();
     setVia(how);
     setSecret(text);
@@ -199,7 +238,9 @@ export function Receive({ initialCode }: { initialCode: string }) {
   return (
     <section className="card">
       <h2>Receive a secret</h2>
-      <p className="muted">Enter the code the sender gave you.</p>
+      <p className="muted">
+        Enter the code the sender gave you.{tenant && " No account needed."}
+      </p>
       <input
         type="text"
         autoFocus

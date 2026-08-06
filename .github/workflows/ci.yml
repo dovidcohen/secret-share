@@ -44,6 +44,13 @@ jobs:
       - name: Optical loopback e2e
         run: node apps/web/test/optical-loopback.mjs
 
+      # White-label tenancy: SSO-gated send, guest-grant loop (mint -> guest
+      # send -> employee claim -> one-time enforcement), and the public-host
+      # regression (no auth traffic, stock branding). Spawns its own wrangler
+      # dev on :8788 and seeds the local KV registry itself.
+      - name: Tenant white-label e2e
+        run: node apps/web/test/tenant-grant.mjs
+
       # The read-once lifecycle guarantees (drop survival on failed --output,
       # capture-safe stderr, claim-once) live in the e2e script — run it here
       # against a real wrangler dev so they can't regress silently.

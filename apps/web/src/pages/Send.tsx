@@ -12,13 +12,17 @@ import {
   utf8,
   type DerivedKeys,
 } from "@secret-share/crypto";
-import { DropExistsError, parkDrop, revokeDrop } from "../lib/drop.js";
+import { DropExistsError, SessionExpiredError, parkDrop, revokeDrop } from "../lib/drop.js";
 import { Signaling } from "../lib/ws.js";
 import { senderLiveTransfer } from "../lib/rtc.js";
+import { loginUrl } from "../lib/auth.js";
+import { useSession } from "../lib/session.js";
+import { useTenant } from "../lib/tenant.js";
 import { CopyButton } from "../components/CopyButton.js";
 import { Countdown } from "../components/Countdown.js";
+import { SignInGate } from "../components/SignInGate.js";
 
-type Phase = "compose" | "sealing" | "ready" | "revoked" | "error";
+type Phase = "compose" | "sealing" | "ready" | "revoked" | "expired" | "error";
 type LiveStatus = "parked" | "peer-online" | "transferring" | "delivered";
 
 const TTL_OPTIONS = [
@@ -28,6 +32,8 @@ const TTL_OPTIONS = [
 ];
 
 export function Send() {
+  const tenant = useTenant();
+  const { state: sessionState } = useSession();
   const [phase, setPhase] = useState<Phase>("compose");
   const [live, setLive] = useState<LiveStatus>("parked");
   const [secret, setSecret] = useState("");
@@ -68,13 +74,13 @@ export function Send() {
         // Direct-only: nothing is uploaded, not even ciphertext. The secret
         // lives exclusively in this tab until it is handed over.
         const candidate = generateCode();
-        keys = await deriveKeys(candidate);
+        keys = await deriveKeys(candidate, tenant?.tenantId);
         shareCode = candidate.code;
       } else {
         // 409 means a 40-bit mailbox-id collision — regenerate and retry.
         for (let attempt = 0; attempt < 3 && !keys; attempt++) {
           const candidate = generateCode();
-          const candidateKeys = await deriveKeys(candidate);
+          const candidateKeys = await deriveKeys(candidate, tenant?.tenantId);
           try {
             const exp = await parkDrop(candidateKeys, await encryptSecret(candidateKeys, plaintext), ttl);
             setExpiresAt(exp);
@@ -93,6 +99,11 @@ export function Send() {
       setLive("parked");
       void openLiveUpgrade(keys, plaintext, liveOnly);
     } catch (e) {
+      if (e instanceof SessionExpiredError) {
+        // The typed secret stays in state; redirecting this tab would destroy it.
+        setPhase("expired");
+        return;
+      }
       setError(e instanceof Error ? e.message : String(e));
       setPhase("error");
     }
@@ -162,7 +173,33 @@ export function Send() {
     }
   }
 
+  if (tenant && sessionState.status === "anon" && (phase === "compose" || phase === "sealing")) {
+    return <SignInGate />;
+  }
+
+  if (phase === "expired") {
+    return (
+      <section className="card">
+        <h2>Your session expired — your secret is safe in this tab</h2>
+        <p className="muted">
+          Sign in again in a new tab, then come back here and retry. Nothing you
+          typed has been lost or uploaded.
+        </p>
+        <div className="row">
+          <button
+            className="primary"
+            onClick={() => window.open(loginUrl("/"), "_blank")}
+          >
+            Sign in again (new tab)
+          </button>
+          <button onClick={() => void share()}>Retry</button>
+        </div>
+      </section>
+    );
+  }
+
   if (phase === "compose" || phase === "sealing") {
+    const checkingSession = tenant !== null && sessionState.status === "loading";
     return (
       <section className="card">
         <h2>Share a secret</h2>
@@ -206,10 +243,14 @@ export function Send() {
         </label>
         <button
           className="primary"
-          disabled={!secret || tooBig || phase === "sealing"}
+          disabled={!secret || tooBig || phase === "sealing" || checkingSession}
           onClick={() => void share()}
         >
-          {phase === "sealing" ? "Sealing…" : "Encrypt & create share code"}
+          {phase === "sealing"
+            ? "Sealing…"
+            : checkingSession
+              ? "Checking sign-in…"
+              : "Encrypt & create share code"}
         </button>
       </section>
     );

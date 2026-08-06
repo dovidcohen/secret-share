@@ -1,4 +1,5 @@
 import type { MailboxDO } from "./mailbox.js";
+import type { UsageDO } from "./usagedo.js";
 
 interface RateLimiter {
   limit(options: { key: string }): Promise<{ success: boolean }>;
@@ -8,6 +9,13 @@ declare global {
   interface Env {
     MAILBOX: DurableObjectNamespace<MailboxDO>;
     ASSETS: Fetcher;
+    /** Tenant registry: host:<hostname>, tenant:<id>, logo:<id>, plus OIDC caches. */
+    TENANTS: KVNamespace;
+    /** Per-tenant usage counters (admin page / future billing). */
+    USAGE?: DurableObjectNamespace<UsageDO>;
+    /** HMAC root for session cookies (secret). Per-tenant OIDC client secrets are
+     * separate Worker secrets named OIDC_CLIENT_SECRET_<TENANTID>. */
+    SESSION_SECRET?: string;
     /** "dev" via .dev.vars under `wrangler dev`; unset in production. */
     ENVIRONMENT?: string;
     /** Workers rate-limiting bindings; optional so local dev works without them. */

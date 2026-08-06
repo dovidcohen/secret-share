@@ -170,7 +170,7 @@ async function verifyConfirm(
   fromRole: "sender" | "receiver",
   received: Uint8Array,
 ): Promise<void> {
-  const expected = await confirmationMac(session, keys.mailboxId, senderSalt, receiverSalt, fromRole);
+  const expected = await confirmationMac(session, keys.mailboxId, senderSalt, receiverSalt, fromRole, keys.context);
   if (!constantTimeEqual(expected, received)) {
     throw new LiveTransferError("Key confirmation failed — the peer does not hold this code");
   }
@@ -276,7 +276,7 @@ export async function senderLiveTransfer(
     dc.send(
       buildFrame(
         FRAME_TYPE.CONFIRM,
-        await confirmationMac(session, keys.mailboxId, senderSalt, receiverSalt, "sender"),
+        await confirmationMac(session, keys.mailboxId, senderSalt, receiverSalt, "sender", keys.context),
       ),
     );
 
@@ -359,7 +359,7 @@ export async function receiverLiveTransfer(
     dc.send(
       buildFrame(
         FRAME_TYPE.CONFIRM,
-        await confirmationMac(session, keys.mailboxId, senderSalt, receiverSalt, "receiver"),
+        await confirmationMac(session, keys.mailboxId, senderSalt, receiverSalt, "receiver", keys.context),
       ),
     );
     const senderConfirm = await reader.next(FRAME_TYPE.CONFIRM, timeoutMs);
