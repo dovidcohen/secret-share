@@ -14,7 +14,8 @@
 //   node scripts/provision-tenant.mjs delete --id fordmed
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -46,9 +47,17 @@ function kvGet(key) {
 }
 
 function kvPut(key, value, metadata) {
-  const args = ["key", "put", key, value];
-  if (metadata) args.push("--metadata", JSON.stringify(metadata));
-  wranglerKv(args);
+  // Values travel via --path: inline JSON args get mangled by the Windows shell.
+  const dir = mkdtempSync(path.join(tmpdir(), "ss-kv-"));
+  try {
+    const file = path.join(dir, "value.json");
+    writeFileSync(file, value);
+    const args = ["key", "put", key, "--path", file];
+    if (metadata) args.push("--metadata", JSON.stringify(metadata));
+    wranglerKv(args);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function kvPutFile(key, file, metadata) {
