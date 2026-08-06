@@ -1,10 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 
 /**
- * Per-tenant usage counters for the admin page and future billing. One
- * instance per tenant (`usage:<tenantId>`), incremented fire-and-forget via
- * ctx.waitUntil from the Worker — a metering failure must never surface on
- * the user path.
+ * Per-tenant runtime state, one instance per tenant (`usage:<tenantId>`):
+ *
+ * - Usage counters for the admin page and future billing, incremented
+ *   fire-and-forget via ctx.waitUntil — a metering failure must never
+ *   surface on the user path.
+ * - The session epoch: a random value stamped into every session cookie and
+ *   required to match at request time. It lives HERE, not in the KV tenant
+ *   config, because KV read-modify-write lets a concurrent cosmetic save
+ *   resurrect a pre-revocation value; the DO serializes every epoch write.
  */
 
 export type UsageKind =
@@ -36,6 +41,21 @@ export class UsageDO extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
     this.init();
     const url = new URL(request.url);
+    if (url.pathname === "/internal/epoch" && request.method === "GET") {
+      let epoch = await this.ctx.storage.get<string>("sessionEpoch");
+      if (!epoch) {
+        epoch = randomEpoch();
+        await this.ctx.storage.put("sessionEpoch", epoch);
+      }
+      return Response.json({ epoch }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/internal/epoch-bump" && request.method === "POST") {
+      // Always a fresh random value — never derived from the old one, so a
+      // stale writer can't reconstruct or resurrect a revoked epoch.
+      const epoch = randomEpoch();
+      await this.ctx.storage.put("sessionEpoch", epoch);
+      return Response.json({ epoch }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (url.pathname === "/internal/increment" && request.method === "POST") {
       const body = (await request.json().catch(() => null)) as { kind?: string } | null;
       if (!body?.kind) return Response.json({ error: "BAD_REQUEST" }, { status: 400 });
@@ -72,6 +92,12 @@ export class UsageDO extends DurableObject<Env> {
       .slice(0, 10);
     this.ctx.storage.sql.exec(`DELETE FROM events WHERE day < ?`, cutoff);
   }
+}
+
+function randomEpoch(): string {
+  const raw = new Uint8Array(16);
+  crypto.getRandomValues(raw);
+  return Array.from(raw, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function normalizeDay(raw: string | null): string | null {

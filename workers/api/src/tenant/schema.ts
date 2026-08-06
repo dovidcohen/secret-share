@@ -28,11 +28,17 @@ export const TenantConfigSchema = z.object({
     })
     .default({ logoVersion: 0 }),
   /**
-   * Stamped into every session cookie; bumping it invalidates all outstanding
-   * sessions for the tenant (emergency revoke, or automatic on authorization-
-   * policy edits). Propagation bound: config cache TTLs (~5 min worst case).
+   * Session lifetime. The deprovisioning window for an IdP-side disable is
+   * min(this, a session-epoch bump), so security-sensitive tenants should
+   * tighten it. (The session EPOCH itself lives in the per-tenant DO, not
+   * here — a config read-modify-write must never be able to resurrect it.)
    */
-  sessionVersion: z.number().int().min(1).default(1),
+  sessionTtlSeconds: z
+    .number()
+    .int()
+    .min(900)
+    .max(28_800)
+    .default(28_800),
   oidc: z.object({
     issuer: z.url().refine((u) => u.startsWith("https://"), "issuer must be https"),
     clientId: z.string().min(1),
@@ -46,7 +52,14 @@ export const TenantConfigSchema = z.object({
     /** Matched against the `groups` OR `roles` id_token claim (Entra: prefer app roles). */
     allowedGroups: z.array(z.string()).default([]),
   }),
+  /**
+   * Bootstrap-only once adminSubjects is populated: email matching grants
+   * admin ONLY while adminSubjects is empty. Pin subjects via
+   * `provision-tenant.mjs set-admin-subject` after the first login — OIDC
+   * `sub` is immutable where emails/UPNs can be renamed or reassigned.
+   */
   adminEmails: z.array(z.email()).min(1),
+  adminSubjects: z.array(z.string().min(1)).default([]),
   features: z
     .object({
       guestGrants: z.boolean().default(true),

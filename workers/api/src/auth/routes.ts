@@ -16,6 +16,7 @@ import {
   readTxn,
   readValidSession,
 } from "./session.js";
+import { getSessionEpoch } from "./epoch.js";
 
 /**
  * /auth/* endpoints — only reachable on tenant hosts (the router 404s them on
@@ -146,22 +147,24 @@ async function callback(
     return authFailure(url, e instanceof OidcError ? e.code : "AUTH_FAILED", env);
   }
 
-  // Identity for authorization decisions (domain gate, admin match).
-  // `email` is trusted only if the IdP didn't mark it unverified. The
-  // preferred_username fallback is restricted to Entra, where it is the
-  // org-controlled UPN (Entra often omits `email` for UPN-only accounts) —
-  // at arbitrary IdPs preferred_username carries no immutability guarantee.
+  // Identity for authorization decisions (domain gate, admin bootstrap).
+  // Entra is special-cased: it emits org-controlled identities (UPN via
+  // preferred_username) but no email_verified claim. Everywhere else,
+  // email-domain authorization demands an explicitly verified email —
+  // an absent claim is NOT accepted as verified.
+  const isEntra = /^https:\/\/login\.microsoftonline\.com\//.test(tenant.oidc.issuer);
   if (claims.email_verified === false) {
     return authFailure(url, "NO_VERIFIED_EMAIL", env);
   }
-  const upnFallback = /^https:\/\/login\.microsoftonline\.com\//.test(tenant.oidc.issuer)
-    ? claims.preferred_username
-    : undefined;
+  const upnFallback = isEntra ? claims.preferred_username : undefined;
   const email = (claims.email ?? upnFallback ?? "").toLowerCase();
   if (!email || !email.includes("@")) return authFailure(url, "NO_EMAIL_CLAIM", env);
 
   const { allowedEmailDomains, allowedGroups } = tenant.oidc;
   if (allowedEmailDomains.length > 0) {
+    if (!isEntra && claims.email_verified !== true) {
+      return authFailure(url, "NO_VERIFIED_EMAIL", env);
+    }
     const domain = email.slice(email.lastIndexOf("@") + 1);
     if (!allowedEmailDomains.some((d) => d.toLowerCase() === domain)) {
       return authFailure(url, "DOMAIN_NOT_ALLOWED", env);
@@ -182,10 +185,11 @@ async function callback(
       sub: claims.sub,
       email,
       name: claims.name,
-      adm: tenant.adminEmails.some((a) => a.toLowerCase() === email),
-      sv: tenant.sessionVersion,
+      adm: isAdminIdentity(tenant, claims.sub, email),
+      epo: await getSessionEpoch(env, tenant.tenantId, { fresh: true }),
     },
     env,
+    tenant.sessionTtlSeconds,
   );
   const res = new Response(null, {
     status: 302,
@@ -194,6 +198,20 @@ async function callback(
   res.headers.append("Set-Cookie", sessionCookie);
   res.headers.append("Set-Cookie", clearTxnCookie(env));
   return withNoStore(res);
+}
+
+/**
+ * Admin identity ratchet: while adminSubjects is empty, adminEmails
+ * bootstraps admin access; once any subject is pinned, ONLY immutable OIDC
+ * subjects grant it — a renamed or reassigned email/UPN no longer does.
+ */
+export function isAdminIdentity(
+  tenant: Pick<TenantConfig, "adminEmails" | "adminSubjects">,
+  sub: string,
+  email: string,
+): boolean {
+  if (tenant.adminSubjects.length > 0) return tenant.adminSubjects.includes(sub);
+  return tenant.adminEmails.some((a) => a.toLowerCase() === email.toLowerCase());
 }
 
 async function me(request: Request, tenant: TenantConfig, env: Env): Promise<Response> {
@@ -207,6 +225,8 @@ async function me(request: Request, tenant: TenantConfig, env: Env): Promise<Res
       name: session.name ?? null,
       tenantId: session.tid,
       isAdmin: session.adm,
+      // Surfaced so an operator can pin it via set-admin-subject.
+      sub: session.sub,
       exp: session.exp,
     }),
   );

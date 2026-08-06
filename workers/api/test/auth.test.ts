@@ -30,7 +30,7 @@ describe("session cookies", () => {
 
   it("round-trips a session", async () => {
     const setCookie = await mintSessionCookie(
-      { tid: "acme", sub: "s1", email: "a@b.co", adm: true, sv: 1 },
+      { tid: "acme", sub: "s1", email: "a@b.co", adm: true, epo: "e1" },
       env,
     );
     const cookie = setCookie.split(";")[0] as string;
@@ -41,7 +41,7 @@ describe("session cookies", () => {
 
   it("rejects tampered tokens and tenant mismatches", async () => {
     const setCookie = await mintSessionCookie(
-      { tid: "acme", sub: "s1", email: "a@b.co", adm: false, sv: 1 },
+      { tid: "acme", sub: "s1", email: "a@b.co", adm: false, epo: "e1" },
       env,
     );
     const cookie = setCookie.split(";")[0] as string;
@@ -134,6 +134,7 @@ describe("OIDC login flow", () => {
         aud: tenant.oidc.clientId,
         sub: "user-1",
         email: "Employee@ACME.test",
+        email_verified: true,
         name: "Test Employee",
         iat: now,
         exp: now + 600,
@@ -232,6 +233,7 @@ describe("OIDC login flow", () => {
         aud: tenant.oidc.clientId,
         sub: "user-2",
         email: "outsider@evil.test",
+        email_verified: true,
         iat: now,
         exp: now + 600,
         nonce: authorize.searchParams.get("nonce"),

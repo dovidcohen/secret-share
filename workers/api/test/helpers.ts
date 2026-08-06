@@ -20,9 +20,9 @@ export async function seedTenant(
     features?: Partial<TenantConfig["features"]>;
     theme?: Partial<TenantConfig["theme"]>;
     adminEmails?: string[];
+    adminSubjects?: string[];
     displayName?: string;
     footerText?: string;
-    sessionVersion?: number;
   } = {},
 ): Promise<TenantConfig> {
   const tenantId = uniqueTenantId();
@@ -32,7 +32,7 @@ export async function seedTenant(
     tenantId,
     displayName: overrides.displayName ?? "Acme Corp",
     hostnames: [`${tenantId}.shareasecret.io`],
-    sessionVersion: overrides.sessionVersion ?? 1,
+    sessionTtlSeconds: 28_800,
     theme: { logoVersion: 0, ...overrides.theme },
     oidc: {
       issuer: "https://idp.test/v2.0",
@@ -44,6 +44,7 @@ export async function seedTenant(
       ...overrides.oidc,
     },
     adminEmails: overrides.adminEmails ?? ["admin@acme.test"],
+    adminSubjects: overrides.adminSubjects ?? [],
     features: { guestGrants: true, liveSend: true, ...overrides.features },
     createdAt: now,
     updatedAt: now,
@@ -56,15 +57,26 @@ export async function seedTenant(
   return tenant;
 }
 
+/** Current session epoch straight from the tenant's DO. */
+export async function currentEpoch(tenantId: string, bump = false): Promise<string> {
+  const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${tenantId}`));
+  const res = await stub.fetch(
+    bump ? "https://usage/internal/epoch-bump" : "https://usage/internal/epoch",
+    bump ? { method: "POST" } : undefined,
+  );
+  return ((await res.json()) as { epoch: string }).epoch;
+}
+
 /** `Cookie:` header value for a signed-in user of the given tenant. */
 export async function sessionCookie(
   tenantId: string,
   email = "employee@acme.test",
   adm = false,
-  sv = 1,
+  epoch?: string,
+  sub = "test-sub",
 ): Promise<string> {
   const setCookie = await mintSessionCookie(
-    { tid: tenantId, sub: "test-sub", email, adm, sv },
+    { tid: tenantId, sub, email, adm, epo: epoch ?? (await currentEpoch(tenantId)) },
     env,
   );
   return setCookie.split(";")[0] as string;

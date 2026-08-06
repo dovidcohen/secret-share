@@ -3,6 +3,8 @@ export interface Session {
   name: string | null;
   tenantId: string;
   isAdmin: boolean;
+  /** Immutable OIDC subject — what admin rights should be pinned to. */
+  sub: string;
   /** Cookie expiry, epoch seconds. */
   exp: number;
 }

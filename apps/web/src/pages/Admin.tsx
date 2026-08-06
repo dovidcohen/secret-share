@@ -196,6 +196,18 @@ export function Admin() {
           <code className="small">Redirect URI: {location.origin}/auth/callback</code>
           <CopyButton text={`${location.origin}/auth/callback`} label="Copy" />
         </div>
+        {state.status === "authed" && (
+          <>
+            <div className="code-display">
+              <code className="small">Your subject ID: {state.session.sub}</code>
+              <CopyButton text={state.session.sub} label="Copy" />
+            </div>
+            <p className="muted">
+              Ask platform support to pin admin rights to this subject ID —
+              unlike an email address, it can't be renamed or reassigned.
+            </p>
+          </>
+        )}
         <p className="muted">
           Emergency cutoff: signs out every user of this tenant, including you.
           Takes effect everywhere within a few minutes.

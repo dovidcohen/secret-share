@@ -2,6 +2,8 @@ import { z } from "zod";
 import { invalidateTenant, loadTenant } from "./tenant/registry.js";
 import { TenantConfigSchema, type TenantConfig } from "./tenant/schema.js";
 import { readValidSession } from "./auth/session.js";
+import { bumpSessionEpoch } from "./auth/epoch.js";
+import { isAdminIdentity } from "./auth/routes.js";
 
 /**
  * /api/admin/* — tenant hosts only, session required, and the admin bit is
@@ -59,10 +61,9 @@ export async function handleAdmin(
   const live = (await loadTenant(tenant.tenantId, env, { fresh: true })) ?? tenant;
   const session = await readValidSession(request, live, env);
   if (!session) return json(401, { error: "AUTH_REQUIRED" });
-  const isAdmin = live.adminEmails.some(
-    (a) => a.toLowerCase() === session.email.toLowerCase(),
-  );
-  if (!isAdmin) return json(403, { error: "NOT_ALLOWED" });
+  if (!isAdminIdentity(live, session.sub, session.email)) {
+    return json(403, { error: "NOT_ALLOWED" });
+  }
 
   if (url.pathname === "/api/admin/tenant" && request.method === "GET") {
     return json(200, live);
@@ -78,10 +79,10 @@ export async function handleAdmin(
   }
   if (url.pathname === "/api/admin/tenant/revoke-sessions" && request.method === "POST") {
     // Emergency cutoff: every outstanding session (including the caller's)
-    // stops validating. Propagation bound is the config cache (~5 min).
-    live.sessionVersion += 1;
-    await saveTenant(live, env);
-    return json(200, { sessionVersion: live.sessionVersion });
+    // stops validating. The epoch write is serialized in the tenant DO, so
+    // no concurrent config save can undo it; per-isolate latency ≤ ~30 s.
+    await bumpSessionEpoch(env, live.tenantId);
+    return json(200, { revoked: true });
   }
   return json(404, { error: "NOT_FOUND" });
 }
@@ -120,13 +121,6 @@ async function editTenant(
   if (edit.oidc?.allowedGroups !== undefined) {
     next.oidc.allowedGroups = edit.oidc.allowedGroups;
   }
-  // Authorization-policy edits revoke outstanding sessions: a user removed
-  // from the allowed set must not coast on a cookie for the rest of the day.
-  const policyChanged =
-    JSON.stringify(next.oidc.allowedEmailDomains) !==
-      JSON.stringify(live.oidc.allowedEmailDomains) ||
-    JSON.stringify(next.oidc.allowedGroups) !== JSON.stringify(live.oidc.allowedGroups);
-  if (policyChanged) next.sessionVersion = live.sessionVersion + 1;
   if (edit.features?.guestGrants !== undefined) {
     next.features.guestGrants = edit.features.guestGrants;
   }
@@ -137,7 +131,16 @@ async function editTenant(
   const validated = TenantConfigSchema.safeParse(next);
   if (!validated.success) return json(400, { error: "BAD_REQUEST" });
   await saveTenant(validated.data, env);
-  return json(200, validated.data);
+  // Authorization-policy edits revoke outstanding sessions: a user removed
+  // from the allowed set must not coast on a cookie for the rest of the day.
+  // The epoch lives in the tenant DO — never in this config document — so a
+  // concurrent cosmetic save can't resurrect a revoked value.
+  const policyChanged =
+    JSON.stringify(next.oidc.allowedEmailDomains) !==
+      JSON.stringify(live.oidc.allowedEmailDomains) ||
+    JSON.stringify(next.oidc.allowedGroups) !== JSON.stringify(live.oidc.allowedGroups);
+  if (policyChanged) await bumpSessionEpoch(env, live.tenantId);
+  return json(200, { ...validated.data, sessionsRevoked: policyChanged });
 }
 
 async function uploadLogo(

@@ -247,7 +247,6 @@ switch (cmd) {
       tenantId: id,
       displayName: args.name,
       hostnames,
-      sessionVersion: 1,
       theme: {
         logoVersion: 0,
         ...(args.color && args.color !== true ? { primaryColor: args.color } : {}),
@@ -264,6 +263,9 @@ switch (cmd) {
         allowedGroups: [].concat(args.group ?? []).filter((g) => g !== true),
       },
       adminEmails: [].concat(args.admin).filter((a) => a !== true),
+      // Email bootstraps the first admin login; pin the immutable OIDC `sub`
+      // with set-admin-subject afterwards, which disables email-based admin.
+      adminSubjects: [],
       features: { guestGrants: true, liveSend: true },
       createdAt: now,
       updatedAt: now,
@@ -304,6 +306,29 @@ switch (cmd) {
     break;
   }
 
+  case "set-admin-subject": {
+    // Pins admin rights to an immutable OIDC subject (shown on the /admin SSO
+    // card and in /auth/me). Once any subject is pinned, adminEmails no longer
+    // grants admin — emails/UPNs can be renamed or reassigned; `sub` cannot.
+    const tenant = loadTenant(args.id);
+    const sub = args.sub;
+    if (!sub || sub === true) fail("--sub is required (copy it from /admin or /auth/me)");
+    tenant.adminSubjects = tenant.adminSubjects ?? [];
+    if (args.remove) {
+      tenant.adminSubjects = tenant.adminSubjects.filter((s) => s !== sub);
+    } else if (!tenant.adminSubjects.includes(sub)) {
+      tenant.adminSubjects.push(sub);
+    }
+    saveTenant(tenant);
+    console.log(`+ adminSubjects for ${tenant.tenantId}: ${JSON.stringify(tenant.adminSubjects)}`);
+    if (tenant.adminSubjects.length > 0) {
+      console.log(`! Email-based admin matching is now DISABLED for this tenant.`);
+    } else {
+      console.log(`! adminSubjects is empty again — email-based admin bootstrap re-enabled.`);
+    }
+    break;
+  }
+
   case "set-logo": {
     const tenant = loadTenant(args.id);
     const file = args.file;
@@ -336,5 +361,5 @@ switch (cmd) {
   }
 
   default:
-    fail(`Unknown command "${cmd ?? ""}" — use create | set-hostname | remove-hostname | set-logo | show | delete`);
+    fail(`Unknown command "${cmd ?? ""}" — use create | set-hostname | remove-hostname | set-admin-subject | set-logo | show | delete`);
 }

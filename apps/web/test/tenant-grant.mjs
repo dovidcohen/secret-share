@@ -74,7 +74,7 @@ console.log("seeded local tenant registry");
 
 // ---------- forge the employee session (independent codec implementation) ----------
 
-async function forgeSessionCookie(tenantId, email) {
+async function forgeSessionCookie(tenantId, email, epoch) {
   const enc = new TextEncoder();
   const ikm = await crypto.subtle.importKey("raw", enc.encode(DEV_SECRET), "HKDF", false, [
     "deriveBits",
@@ -89,7 +89,7 @@ async function forgeSessionCookie(tenantId, email) {
   ]);
   const t = Math.floor(Date.now() / 1000);
   const body = enc.encode(
-    JSON.stringify({ v: 1, tid: tenantId, sub: "e2e-sub", email, adm: false, sv: 1, iat: t, exp: t + 28800 }),
+    JSON.stringify({ v: 1, tid: tenantId, sub: "e2e-sub", email, adm: false, epo: epoch, iat: t, exp: t + 28800 }),
   );
   const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, body));
   const b64u = (b) => Buffer.from(b).toString("base64url");
@@ -127,6 +127,11 @@ for (let i = 0; i < 90; i++) {
 }
 console.log("wrangler dev ready on :8788");
 
+// The session epoch lives in the tenant DO; the dev-only endpoint hands it to
+// us so the forged cookie matches what the gate expects.
+const epochRes = await fetch(`${BASE}/internal-dev/epoch`, { headers: TENANT_HOST_HEADER });
+const { epoch } = await epochRes.json();
+
 // ---------- scenarios ----------
 
 const browser = await chromium.launch();
@@ -150,7 +155,7 @@ const browser = await chromium.launch();
   await employeeCtx.addCookies([
     {
       name: "ss_session",
-      value: await forgeSessionCookie("acme", "employee@acme.test"),
+      value: await forgeSessionCookie("acme", "employee@acme.test", epoch),
       url: BASE,
     },
   ]);

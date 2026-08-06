@@ -42,11 +42,11 @@ describe("www redirect scope", () => {
   });
 });
 
-// ---------- MED: session versioning / revocation ----------
+// ---------- MED: session-epoch revocation (DO-owned, race-free) ----------
 
-describe("session versioning", () => {
-  it("a session minted under an older sessionVersion is refused", async () => {
-    const tenant = await seedTenant({ sessionVersion: 2 });
+describe("session epoch revocation", () => {
+  it("a session minted under an older epoch is refused", async () => {
+    const tenant = await seedTenant();
     const host = tenantHost(tenant);
     const id = mailboxId();
     const t = await makeTags();
@@ -55,7 +55,7 @@ describe("session versioning", () => {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        Cookie: await sessionCookie(tenant.tenantId, "employee@acme.test", false, 1),
+        Cookie: await sessionCookie(tenant.tenantId, "employee@acme.test", false, "0".repeat(32)),
       },
       body: dropBody(t),
     });
@@ -65,17 +65,17 @@ describe("session versioning", () => {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        Cookie: await sessionCookie(tenant.tenantId, "employee@acme.test", false, 2),
+        Cookie: await sessionCookie(tenant.tenantId),
       },
       body: dropBody(t),
     });
     expect(current.status).toBe(201);
   });
 
-  it("revoke-sessions bumps the version and cuts off the caller too", async () => {
+  it("revoke-sessions cuts off outstanding sessions, including the caller's", async () => {
     const tenant = await seedTenant({ adminEmails: ["admin@acme.test"] });
     const host = tenantHost(tenant);
-    const adminCookie = await sessionCookie(tenant.tenantId, "admin@acme.test", true, 1);
+    const adminCookie = await sessionCookie(tenant.tenantId, "admin@acme.test", true);
 
     const before = await SELF.fetch(`https://${host}/api/admin/tenant`, {
       headers: { Cookie: adminCookie },
@@ -87,19 +87,41 @@ describe("session versioning", () => {
       headers: { Cookie: adminCookie },
     });
     expect(revoke.status).toBe(200);
-    expect(((await revoke.json()) as { sessionVersion: number }).sessionVersion).toBe(2);
 
-    clearTenantCache();
     const after = await SELF.fetch(`https://${host}/api/admin/tenant`, {
       headers: { Cookie: adminCookie },
     });
     expect(after.status).toBe(401);
   });
 
-  it("editing authorization policy revokes outstanding sessions", async () => {
+  it("a concurrent cosmetic save cannot resurrect a revoked epoch", async () => {
+    // The audited race: branding save reads config, revoke happens, branding
+    // save writes its stale document. With the epoch in the DO, the stale
+    // config write carries no epoch at all — revocation must survive.
     const tenant = await seedTenant({ adminEmails: ["admin@acme.test"] });
     const host = tenantHost(tenant);
-    const adminCookie = await sessionCookie(tenant.tenantId, "admin@acme.test", true, 1);
+    const employeeCookie = await sessionCookie(tenant.tenantId);
+
+    // Revoke, then simulate the stale read-modify-write landing afterwards.
+    await SELF.fetch(`https://${host}/api/admin/tenant/revoke-sessions`, {
+      method: "POST",
+      headers: { Cookie: await sessionCookie(tenant.tenantId, "admin@acme.test", true) },
+    });
+    await env.TENANTS.put(`tenant:${tenant.tenantId}`, JSON.stringify(tenant));
+    clearTenantCache();
+
+    const res = await SELF.fetch(`https://${host}/api/drops/${mailboxId()}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Cookie: employeeCookie },
+      body: dropBody(await makeTags()),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("editing authorization policy revokes outstanding sessions; cosmetic edits do not", async () => {
+    const tenant = await seedTenant({ adminEmails: ["admin@acme.test"] });
+    const host = tenantHost(tenant);
+    const adminCookie = await sessionCookie(tenant.tenantId, "admin@acme.test", true);
 
     const edit = await SELF.fetch(`https://${host}/api/admin/tenant`, {
       method: "PUT",
@@ -107,19 +129,52 @@ describe("session versioning", () => {
       body: JSON.stringify({ oidc: { allowedEmailDomains: ["acme.test"] } }),
     });
     expect(edit.status).toBe(200);
-    expect(((await edit.json()) as { sessionVersion: number }).sessionVersion).toBe(2);
+    expect(((await edit.json()) as { sessionsRevoked: boolean }).sessionsRevoked).toBe(true);
 
-    // Cosmetic edits do NOT revoke sessions.
+    // The old cookie is dead; a fresh one (current epoch) does cosmetic edits
+    // without triggering another revocation.
     const cosmetic = await SELF.fetch(`https://${host}/api/admin/tenant`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        Cookie: await sessionCookie(tenant.tenantId, "admin@acme.test", true, 2),
+        Cookie: await sessionCookie(tenant.tenantId, "admin@acme.test", true),
       },
       body: JSON.stringify({ displayName: "Acme Renamed" }),
     });
     expect(cosmetic.status).toBe(200);
-    expect(((await cosmetic.json()) as { sessionVersion: number }).sessionVersion).toBe(2);
+    expect(((await cosmetic.json()) as { sessionsRevoked: boolean }).sessionsRevoked).toBe(false);
+  });
+});
+
+// ---------- MED: admin identity pinned to immutable subjects ----------
+
+describe("admin identity ratchet", () => {
+  it("email grants admin only while adminSubjects is empty", async () => {
+    const bootstrap = await seedTenant({ adminEmails: ["admin@acme.test"] });
+    const viaEmail = await SELF.fetch(`https://${tenantHost(bootstrap)}/api/admin/tenant`, {
+      headers: { Cookie: await sessionCookie(bootstrap.tenantId, "admin@acme.test", true) },
+    });
+    expect(viaEmail.status).toBe(200);
+
+    const pinned = await seedTenant({
+      adminEmails: ["admin@acme.test"],
+      adminSubjects: ["real-admin-sub"],
+    });
+    const host = tenantHost(pinned);
+    // Same email, wrong subject: a renamed/reassigned mailbox gets nothing.
+    const emailOnly = await SELF.fetch(`https://${host}/api/admin/tenant`, {
+      headers: {
+        Cookie: await sessionCookie(pinned.tenantId, "admin@acme.test", true, undefined, "attacker-sub"),
+      },
+    });
+    expect(emailOnly.status).toBe(403);
+    // The pinned subject is admin regardless of its current email.
+    const bySubject = await SELF.fetch(`https://${host}/api/admin/tenant`, {
+      headers: {
+        Cookie: await sessionCookie(pinned.tenantId, "renamed@acme.test", true, undefined, "real-admin-sub"),
+      },
+    });
+    expect(bySubject.status).toBe(200);
   });
 });
 
@@ -236,6 +291,20 @@ describe("identity claim hardening", () => {
       preferred_username: "spoofed-admin@acme.test",
     }));
     expect(res.headers.get("Location")).toContain("auth_error=NO_EMAIL_CLAIM");
+  });
+
+  it("domain authorization at a generic IdP requires an explicitly verified email", async () => {
+    // email present but email_verified ABSENT: not accepted as verified.
+    const res = await runCallback(
+      "sec-ev-absent",
+      { allowedEmailDomains: ["acme.test"] },
+      (nonce, clientId) => ({
+        ...baseClaims(nonce, clientId),
+        iss: "https://idp.test/sec-ev-absent/v2.0",
+        email: "someone@acme.test",
+      }),
+    );
+    expect(res.headers.get("Location")).toContain("auth_error=NO_VERIFIED_EMAIL");
   });
 
   it("rejects multi-audience tokens without a matching azp", async () => {

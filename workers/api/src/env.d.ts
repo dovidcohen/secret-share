@@ -11,8 +11,8 @@ declare global {
     ASSETS: Fetcher;
     /** Tenant registry: host:<hostname>, tenant:<id>, logo:<id>, plus OIDC caches. */
     TENANTS: KVNamespace;
-    /** Per-tenant usage counters (admin page / future billing). */
-    USAGE?: DurableObjectNamespace<UsageDO>;
+    /** Per-tenant state DO: usage counters + the session epoch (revocation). */
+    USAGE: DurableObjectNamespace<UsageDO>;
     /** HMAC root for session cookies (secret). Per-tenant OIDC client secrets are
      * separate Worker secrets named OIDC_CLIENT_SECRET_<TENANTID>. */
     SESSION_SECRET?: string;

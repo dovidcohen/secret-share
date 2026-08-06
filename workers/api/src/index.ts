@@ -246,6 +246,14 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
         ).success
       : false;
 
+  // Dev-only (wrangler dev / vitest): lets the tenant e2e forge a session
+  // with the real epoch instead of needing a live IdP. Unreachable in
+  // production; knowing the epoch grants nothing without SESSION_SECRET.
+  if (tenant && env.ENVIRONMENT === "dev" && pathname === "/internal-dev/epoch") {
+    const { getSessionEpoch } = await import("./auth/epoch.js");
+    return json(200, { epoch: await getSessionEpoch(env, tenant.tenantId, { fresh: true }) });
+  }
+
   if (tenant && pathname.startsWith("/auth/")) {
     if (limited) return json(429, { error: "RATE_LIMITED" });
     const res = await handleAuth(request, url, tenant, env);

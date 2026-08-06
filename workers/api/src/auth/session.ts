@@ -8,7 +8,9 @@
  * tenants can be rotated independently later and a forged tid never verifies.
  */
 
-export const SESSION_TTL_S = 8 * 3600;
+import { getSessionEpoch } from "./epoch.js";
+
+export const DEFAULT_SESSION_TTL_S = 8 * 3600;
 const TXN_TTL_S = 600;
 
 /**
@@ -31,8 +33,11 @@ export interface SessionPayload {
   name?: string;
   /** Admin at login time; admin endpoints re-check against live config. */
   adm: boolean;
-  /** Tenant sessionVersion at mint time; a config bump revokes all sessions. */
-  sv: number;
+  /**
+   * Tenant session epoch at mint time (random, DO-owned). A bump revokes
+   * every outstanding session; see auth/epoch.ts.
+   */
+  epo: string;
   iat: number;
   exp: number;
 }
@@ -156,11 +161,12 @@ function cookieAttrs(maxAge: number, env: Env): string {
 export async function mintSessionCookie(
   payload: Omit<SessionPayload, "v" | "iat" | "exp">,
   env: Env,
+  ttlSeconds: number = DEFAULT_SESSION_TTL_S,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const full: SessionPayload = { v: 1, ...payload, iat: now, exp: now + SESSION_TTL_S };
+  const full: SessionPayload = { v: 1, ...payload, iat: now, exp: now + ttlSeconds };
   const token = await sign(full, requireSecret(env), payload.tid, "ss/session/v1");
-  return `${sessionCookieName(env)}=${token}; ${cookieAttrs(SESSION_TTL_S, env)}`;
+  return `${sessionCookieName(env)}=${token}; ${cookieAttrs(ttlSeconds, env)}`;
 }
 
 export async function readSession(
@@ -176,17 +182,20 @@ export async function readSession(
 
 /**
  * The gate every protected request goes through: signature-valid AND minted
- * under the tenant's CURRENT sessionVersion. Bumping the version (emergency
+ * under the tenant's CURRENT session epoch. Bumping the epoch (emergency
  * revoke, authorization-policy edits) cuts off outstanding sessions without
- * waiting out the cookie TTL.
+ * waiting out the cookie TTL; per-isolate revocation latency is bounded by
+ * the epoch cache TTL (~30 s).
  */
 export async function readValidSession(
   request: Request,
-  tenant: { tenantId: string; sessionVersion: number },
+  tenant: { tenantId: string },
   env: Env,
 ): Promise<SessionPayload | null> {
   const session = await readSession(request, tenant.tenantId, env);
-  if (!session || session.sv !== tenant.sessionVersion) return null;
+  if (!session) return null;
+  const epoch = await getSessionEpoch(env, tenant.tenantId).catch(() => null);
+  if (!epoch || session.epo !== epoch) return null;
   return session;
 }
 
