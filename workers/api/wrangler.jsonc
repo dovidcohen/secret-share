@@ -9,9 +9,11 @@
     { "pattern": "shareasecret.io", "custom_domain": true },
     { "pattern": "www.shareasecret.io", "custom_domain": true },
     // White-label tenant subdomains (needs the proxied `*` CNAME in DNS).
-    // Custom hostnames (secrets.customer.com) get their own route entries via
-    // scripts/provision-tenant.mjs once Cloudflare for SaaS is enabled.
-    { "pattern": "*.shareasecret.io/*", "zone_name": "shareasecret.io" }
+    { "pattern": "*.shareasecret.io/*", "zone_name": "shareasecret.io" },
+    // Cloudflare-for-SaaS custom hostnames — one route per vanity domain.
+    // NOTE: the route can only be created AFTER the custom hostname exists in
+    // the zone (wrangler rejects it otherwise); add per tenant, post-creation.
+    { "pattern": "secrets.fordmed.com/*", "zone_name": "shareasecret.io" }
   ],
   // run_worker_first: true so the Worker can stamp security headers on every
   // asset response, not just API routes.
