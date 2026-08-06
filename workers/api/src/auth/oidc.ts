@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { TenantConfig } from "../tenant/schema.js";
 
 /**
@@ -7,23 +8,35 @@ import type { TenantConfig } from "../tenant/schema.js";
  * dependencies. RS256 only for v1 (Entra, Okta, Google all default to it).
  */
 
-export interface DiscoveryDocument {
-  issuer: string;
-  authorization_endpoint: string;
-  token_endpoint: string;
-  jwks_uri: string;
-  end_session_endpoint?: string;
-}
+/**
+ * A discovery document (or a poisoned cache of one) must never point us at a
+ * plaintext endpoint: the token exchange carries the client secret.
+ */
+const httpsUrl = z
+  .url()
+  .refine((u) => u.startsWith("https://"), "endpoint must be https");
+
+const DiscoveryDocumentSchema = z.object({
+  issuer: z.string(),
+  authorization_endpoint: httpsUrl,
+  token_endpoint: httpsUrl,
+  jwks_uri: httpsUrl,
+  end_session_endpoint: z.string().optional(),
+});
+export type DiscoveryDocument = z.infer<typeof DiscoveryDocumentSchema>;
 
 export interface IdTokenClaims {
   iss: string;
   aud: string | string[];
+  /** Authorized party — required when aud has multiple entries. */
+  azp?: string;
   sub: string;
   exp: number;
   iat: number;
   nbf?: number;
   nonce?: string;
   email?: string;
+  email_verified?: boolean;
   preferred_username?: string;
   name?: string;
   groups?: string[];
@@ -76,19 +89,23 @@ export async function discover(issuer: string, env: Env): Promise<DiscoveryDocum
     type: "json",
     cacheTtl: DISCOVERY_KV_TTL_S,
   }).catch(() => null);
-  if (cached) return cached as DiscoveryDocument;
+  if (cached) {
+    // Re-validate on read: a poisoned or legacy cache entry gets the same
+    // scrutiny as a fresh fetch.
+    const parsed = DiscoveryDocumentSchema.safeParse(cached);
+    if (parsed.success && parsed.data.issuer === issuer) return parsed.data;
+  }
 
   const url = `${issuer.replace(/\/$/, "")}/.well-known/openid-configuration`;
   const res = await fetch(url);
   if (!res.ok) throw new OidcError("DISCOVERY_FAILED", `${res.status} from ${url}`);
-  const doc = (await res.json()) as DiscoveryDocument;
+  const parsed = DiscoveryDocumentSchema.safeParse(await res.json().catch(() => null));
+  if (!parsed.success) throw new OidcError("DISCOVERY_INCOMPLETE", parsed.error.message);
+  const doc = parsed.data;
   // Entra's v2.0 issuer contains the directory tenant id; an exact match here
   // is what stops a look-alike issuer from serving us its own keys.
   if (doc.issuer !== issuer) {
     throw new OidcError("ISSUER_MISMATCH", `${doc.issuer} != ${issuer}`);
-  }
-  if (!doc.authorization_endpoint || !doc.token_endpoint || !doc.jwks_uri) {
-    throw new OidcError("DISCOVERY_INCOMPLETE");
   }
   await env.TENANTS.put(kvKey, JSON.stringify(doc), {
     expirationTtl: 24 * 3600,
@@ -171,6 +188,12 @@ export async function validateIdToken(
   if (claims.iss !== opts.issuer) throw new OidcError("BAD_ISS", claims.iss);
   const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!aud.includes(opts.clientId)) throw new OidcError("BAD_AUD");
+  // Multi-audience tokens must name us as the authorized party (OIDC Core
+  // §3.1.3.7) — otherwise a token minted for a different relying party that
+  // merely lists us in aud would validate here.
+  if (aud.length > 1 && claims.azp !== opts.clientId) {
+    throw new OidcError("BAD_AZP", claims.azp);
+  }
   if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_S <= now) {
     throw new OidcError("EXPIRED");
   }

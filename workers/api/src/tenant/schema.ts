@@ -27,8 +27,14 @@ export const TenantConfigSchema = z.object({
       footerText: z.string().max(200).optional(),
     })
     .default({ logoVersion: 0 }),
+  /**
+   * Stamped into every session cookie; bumping it invalidates all outstanding
+   * sessions for the tenant (emergency revoke, or automatic on authorization-
+   * policy edits). Propagation bound: config cache TTLs (~5 min worst case).
+   */
+  sessionVersion: z.number().int().min(1).default(1),
   oidc: z.object({
-    issuer: z.url(),
+    issuer: z.url().refine((u) => u.startsWith("https://"), "issuer must be https"),
     clientId: z.string().min(1),
     /** "secret": confidential client (Worker secret) + PKCE. "pkce_public": PKCE only. */
     clientAuth: z.enum(["secret", "pkce_public"]).default("secret"),

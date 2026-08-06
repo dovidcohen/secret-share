@@ -89,7 +89,7 @@ async function forgeSessionCookie(tenantId, email) {
   ]);
   const t = Math.floor(Date.now() / 1000);
   const body = enc.encode(
-    JSON.stringify({ v: 1, tid: tenantId, sub: "e2e-sub", email, adm: false, iat: t, exp: t + 28800 }),
+    JSON.stringify({ v: 1, tid: tenantId, sub: "e2e-sub", email, adm: false, sv: 1, iat: t, exp: t + 28800 }),
   );
   const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, body));
   const b64u = (b) => Buffer.from(b).toString("base64url");

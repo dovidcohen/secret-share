@@ -30,7 +30,7 @@ describe("session cookies", () => {
 
   it("round-trips a session", async () => {
     const setCookie = await mintSessionCookie(
-      { tid: "acme", sub: "s1", email: "a@b.co", adm: true },
+      { tid: "acme", sub: "s1", email: "a@b.co", adm: true, sv: 1 },
       env,
     );
     const cookie = setCookie.split(";")[0] as string;
@@ -41,7 +41,7 @@ describe("session cookies", () => {
 
   it("rejects tampered tokens and tenant mismatches", async () => {
     const setCookie = await mintSessionCookie(
-      { tid: "acme", sub: "s1", email: "a@b.co", adm: false },
+      { tid: "acme", sub: "s1", email: "a@b.co", adm: false, sv: 1 },
       env,
     );
     const cookie = setCookie.split(";")[0] as string;

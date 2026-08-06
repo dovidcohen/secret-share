@@ -13,8 +13,8 @@ import {
   mintSessionCookie,
   mintTxnCookie,
   randomToken,
-  readSession,
   readTxn,
+  readValidSession,
 } from "./session.js";
 
 /**
@@ -146,7 +146,18 @@ async function callback(
     return authFailure(url, e instanceof OidcError ? e.code : "AUTH_FAILED", env);
   }
 
-  const email = (claims.email ?? claims.preferred_username ?? "").toLowerCase();
+  // Identity for authorization decisions (domain gate, admin match).
+  // `email` is trusted only if the IdP didn't mark it unverified. The
+  // preferred_username fallback is restricted to Entra, where it is the
+  // org-controlled UPN (Entra often omits `email` for UPN-only accounts) —
+  // at arbitrary IdPs preferred_username carries no immutability guarantee.
+  if (claims.email_verified === false) {
+    return authFailure(url, "NO_VERIFIED_EMAIL", env);
+  }
+  const upnFallback = /^https:\/\/login\.microsoftonline\.com\//.test(tenant.oidc.issuer)
+    ? claims.preferred_username
+    : undefined;
+  const email = (claims.email ?? upnFallback ?? "").toLowerCase();
   if (!email || !email.includes("@")) return authFailure(url, "NO_EMAIL_CLAIM", env);
 
   const { allowedEmailDomains, allowedGroups } = tenant.oidc;
@@ -172,6 +183,7 @@ async function callback(
       email,
       name: claims.name,
       adm: tenant.adminEmails.some((a) => a.toLowerCase() === email),
+      sv: tenant.sessionVersion,
     },
     env,
   );
@@ -185,7 +197,7 @@ async function callback(
 }
 
 async function me(request: Request, tenant: TenantConfig, env: Env): Promise<Response> {
-  const session = await readSession(request, tenant.tenantId, env);
+  const session = await readValidSession(request, tenant, env);
   if (!session) {
     return withNoStore(Response.json({ error: "AUTH_REQUIRED" }, { status: 401 }));
   }

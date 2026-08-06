@@ -60,7 +60,12 @@ async function lookup(hostname: string, env: Env): Promise<TenantResolution> {
   }
 
   const tenant = await loadTenant(tenantId, env);
-  return tenant ? { kind: "tenant", tenant } : { kind: "unknown" };
+  if (!tenant) return { kind: "unknown" };
+  // A host: mapping must be corroborated by the tenant's own hostname list —
+  // a stale or mistakenly written mapping must not route a domain to a
+  // tenant that doesn't claim it.
+  if (!tenant.hostnames.includes(hostname)) return { kind: "unknown" };
+  return { kind: "tenant", tenant };
 }
 
 /** Direct tenant load (admin API re-reads config on every request to pick up edits). */

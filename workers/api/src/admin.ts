@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { invalidateTenant, loadTenant } from "./tenant/registry.js";
 import { TenantConfigSchema, type TenantConfig } from "./tenant/schema.js";
-import { readSession } from "./auth/session.js";
+import { readValidSession } from "./auth/session.js";
 
 /**
  * /api/admin/* — tenant hosts only, session required, and the admin bit is
@@ -54,11 +54,11 @@ export async function handleAdmin(
   tenant: TenantConfig,
   env: Env,
 ): Promise<Response> {
-  const session = await readSession(request, tenant.tenantId, env);
-  if (!session) return json(401, { error: "AUTH_REQUIRED" });
-  // Fresh read: the resolver's copy may be minutes stale, and admin rights
-  // must reflect the config as written, not as cached.
+  // Fresh read: the resolver's copy may be minutes stale, and admin rights /
+  // session revocation must reflect the config as written, not as cached.
   const live = (await loadTenant(tenant.tenantId, env, { fresh: true })) ?? tenant;
+  const session = await readValidSession(request, live, env);
+  if (!session) return json(401, { error: "AUTH_REQUIRED" });
   const isAdmin = live.adminEmails.some(
     (a) => a.toLowerCase() === session.email.toLowerCase(),
   );
@@ -75,6 +75,13 @@ export async function handleAdmin(
   }
   if (url.pathname === "/api/admin/usage" && request.method === "GET") {
     return usage(url, live, env);
+  }
+  if (url.pathname === "/api/admin/tenant/revoke-sessions" && request.method === "POST") {
+    // Emergency cutoff: every outstanding session (including the caller's)
+    // stops validating. Propagation bound is the config cache (~5 min).
+    live.sessionVersion += 1;
+    await saveTenant(live, env);
+    return json(200, { sessionVersion: live.sessionVersion });
   }
   return json(404, { error: "NOT_FOUND" });
 }
@@ -113,6 +120,13 @@ async function editTenant(
   if (edit.oidc?.allowedGroups !== undefined) {
     next.oidc.allowedGroups = edit.oidc.allowedGroups;
   }
+  // Authorization-policy edits revoke outstanding sessions: a user removed
+  // from the allowed set must not coast on a cookie for the rest of the day.
+  const policyChanged =
+    JSON.stringify(next.oidc.allowedEmailDomains) !==
+      JSON.stringify(live.oidc.allowedEmailDomains) ||
+    JSON.stringify(next.oidc.allowedGroups) !== JSON.stringify(live.oidc.allowedGroups);
+  if (policyChanged) next.sessionVersion = live.sessionVersion + 1;
   if (edit.features?.guestGrants !== undefined) {
     next.features.guestGrants = edit.features.guestGrants;
   }

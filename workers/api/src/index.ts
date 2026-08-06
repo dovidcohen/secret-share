@@ -9,7 +9,7 @@ import { resolveTenant } from "./tenant/registry.js";
 import type { TenantConfig } from "./tenant/schema.js";
 import { marketingRedirect, rewriteHtmlForTenant, serveLogo } from "./branding.js";
 import { handleAuth } from "./auth/routes.js";
-import { readSession } from "./auth/session.js";
+import { readValidSession } from "./auth/session.js";
 import { handleAdmin } from "./admin.js";
 import { recordUsage } from "./usagedo.js";
 
@@ -141,7 +141,7 @@ async function mintGrant(
 ): Promise<Response> {
   if (!tenant.features.guestGrants) return json(404, { error: "NOT_FOUND" });
   if (crossSiteOrigin(request, url)) return json(403, { error: "NOT_ALLOWED" });
-  const session = await readSession(request, tenant.tenantId, env);
+  const session = await readValidSession(request, tenant, env);
   if (!session) return json(401, { error: "AUTH_REQUIRED" });
 
   const body = CreateGrantRequestSchema.safeParse(await request.json().catch(() => null));
@@ -177,7 +177,7 @@ async function tenantMailboxAuth(
 
   if (!isCreate && !isSenderWs) return { header: "public" };
 
-  const session = await readSession(request, tenant.tenantId, env);
+  const session = await readValidSession(request, tenant, env);
   if (session) {
     if (isCreate && crossSiteOrigin(request, url)) {
       return { deny: json(403, { error: "NOT_ALLOWED" }) };
@@ -210,8 +210,10 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
   // Canonical host: www duplicates the apex in search indexes otherwise.
   // Fragments (where share codes live) survive redirects client-side.
-  if (url.hostname.startsWith("www.")) {
-    url.hostname = url.hostname.slice(4);
+  // EXACTLY the apex www — a blanket startsWith("www.") would bounce
+  // www.secrets.customer.com (OAuth codes, /give fragments) across origins.
+  if (url.hostname === "www.shareasecret.io") {
+    url.hostname = "shareasecret.io";
     return Response.redirect(url.toString(), 301);
   }
 

@@ -22,6 +22,7 @@ export async function seedTenant(
     adminEmails?: string[];
     displayName?: string;
     footerText?: string;
+    sessionVersion?: number;
   } = {},
 ): Promise<TenantConfig> {
   const tenantId = uniqueTenantId();
@@ -31,6 +32,7 @@ export async function seedTenant(
     tenantId,
     displayName: overrides.displayName ?? "Acme Corp",
     hostnames: [`${tenantId}.shareasecret.io`],
+    sessionVersion: overrides.sessionVersion ?? 1,
     theme: { logoVersion: 0, ...overrides.theme },
     oidc: {
       issuer: "https://idp.test/v2.0",
@@ -59,9 +61,10 @@ export async function sessionCookie(
   tenantId: string,
   email = "employee@acme.test",
   adm = false,
+  sv = 1,
 ): Promise<string> {
   const setCookie = await mintSessionCookie(
-    { tid: tenantId, sub: "test-sub", email, adm },
+    { tid: tenantId, sub: "test-sub", email, adm, sv },
     env,
   );
   return setCookie.split(";")[0] as string;

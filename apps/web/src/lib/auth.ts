@@ -53,6 +53,8 @@ function authErrorMessage(code: string): string {
       return "Your account's email domain isn't allowed on this service.";
     case "GROUP_NOT_ALLOWED":
       return "Your account isn't in a group that's allowed to use this service.";
+    case "NO_VERIFIED_EMAIL":
+      return "Your identity provider reports your email address as unverified.";
     case "LOGIN_EXPIRED":
       return "The sign-in took too long — please try again.";
     case "IDP_UNREACHABLE":

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Operator CLI for white-label tenants. Writes the KV registry via wrangler
 // (OAuth) and, when CF_API_TOKEN is set, drives Cloudflare for SaaS custom
-// hostnames + worker routes. OIDC client secrets NEVER pass through here —
-// the script prints the `wrangler secret put` command to run instead.
+// hostnames. OIDC client secrets NEVER pass through here — the script prints
+// the `wrangler secret put` command to run instead.
 //
 //   node scripts/provision-tenant.mjs create --id fordmed --name "FordMed" \
 //     --issuer https://login.microsoftonline.com/<dir-tenant-id>/v2.0 \
@@ -10,10 +10,12 @@
 //     [--color "#0e7490"] [--idp-label "FordMed (Microsoft)"] [--domain fordmed.com]
 //   node scripts/provision-tenant.mjs set-logo --id fordmed --file ./logo.png
 //   node scripts/provision-tenant.mjs set-hostname --id fordmed --hostname secrets.fordmed.com
+//   node scripts/provision-tenant.mjs remove-hostname --id fordmed --hostname secrets.fordmed.com
 //   node scripts/provision-tenant.mjs show --id fordmed
 //   node scripts/provision-tenant.mjs delete --id fordmed
 
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -22,6 +24,34 @@ import path from "node:path";
 const API_DIR = fileURLToPath(new URL("../workers/api", import.meta.url));
 const WRANGLER_CONFIG = path.join(API_DIR, "wrangler.jsonc");
 const ZONE_NAME = "shareasecret.io";
+
+/** Platform hostnames a tenant must never claim. */
+const RESERVED_HOSTNAMES = new Set([
+  ZONE_NAME,
+  `www.${ZONE_NAME}`,
+  `fallback.${ZONE_NAME}`,
+]);
+
+/** Lowercase DNS name: dot-separated LDH labels, no metacharacters, sane length. */
+const HOSTNAME_RE =
+  /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+
+function normalizeHostname(raw) {
+  const hostname = String(raw).trim().toLowerCase().replace(/\.$/, "");
+  if (!HOSTNAME_RE.test(hostname)) fail(`"${raw}" is not a valid hostname`);
+  if (RESERVED_HOSTNAMES.has(hostname)) fail(`"${hostname}" is reserved`);
+  return hostname;
+}
+
+/**
+ * Wrangler runs via the Node binary directly — no shell anywhere, so a
+ * hostile hostname or path can never become shell metacharacters on the
+ * operator's workstation.
+ */
+const WRANGLER_BIN = (() => {
+  const req = createRequire(path.join(API_DIR, "package.json"));
+  return path.join(path.dirname(req.resolve("wrangler/package.json")), "bin", "wrangler.js");
+})();
 
 function namespaceId() {
   const config = readFileSync(WRANGLER_CONFIG, "utf8");
@@ -32,9 +62,9 @@ function namespaceId() {
 
 function wranglerKv(args, input) {
   return execFileSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["wrangler", "kv", ...args, "--namespace-id", namespaceId(), "--remote"],
-    { cwd: API_DIR, input, encoding: "utf8", shell: process.platform === "win32" },
+    process.execPath,
+    [WRANGLER_BIN, "kv", ...args, "--namespace-id", namespaceId(), "--remote"],
+    { cwd: API_DIR, input, encoding: "utf8" },
   );
 }
 
@@ -99,7 +129,29 @@ function loadTenant(id) {
   return JSON.parse(raw);
 }
 
+function hostMappingOwner(hostname) {
+  const raw = kvGet(`host:${hostname}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw).tenantId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** A hostname already routed to another tenant is never silently reassigned. */
+function assertHostAvailable(hostname, tenantId) {
+  const owner = hostMappingOwner(hostname);
+  if (owner && owner !== tenantId) {
+    fail(
+      `"${hostname}" is already mapped to tenant "${owner}" — run ` +
+        `remove-hostname --id ${owner} --hostname ${hostname} first if this is a migration`,
+    );
+  }
+}
+
 function saveTenant(tenant) {
+  for (const host of tenant.hostnames) assertHostAvailable(host, tenant.tenantId);
   tenant.updatedAt = Date.now();
   kvPut(`tenant:${tenant.tenantId}`, JSON.stringify(tenant));
   for (const host of tenant.hostnames) {
@@ -140,7 +192,8 @@ async function provisionCustomHostname(hostname) {
   } else {
     console.log(`+ custom hostname ${hostname} created (status: ${result.status})`);
   }
-  console.log(`! Add a worker route for it (dashboard or API): pattern "${hostname}/*", zone ${ZONE_NAME}`);
+  console.log(`! Worker route: add { "pattern": "${hostname}/*", "zone_name": "${ZONE_NAME}" }`);
+  console.log(`  to wrangler.jsonc AFTER the custom hostname exists, then deploy.`);
   console.log(`! Customer DNS required: ${hostname} CNAME fallback.${ZONE_NAME}`);
 }
 
@@ -159,7 +212,7 @@ Next steps for ${tenant.displayName}:
      - Issuer to configure here: ${tenant.oidc.issuer}
      - For group gating, prefer App Roles (the 'groups' claim is omitted for
        users in >200 groups); put role values in oidc.allowedGroups.
-  2. Client secret (NOTE ITS EXPIRY — Entra caps at 24 months):
+  2. Client secret (copy the VALUE right after creation; NOTE ITS EXPIRY):
        cd workers/api && npx wrangler secret put ${secretName}
   3. One-time platform secret if not done yet:
        cd workers/api && npx wrangler secret put SESSION_SECRET   (32+ random chars)
@@ -175,14 +228,18 @@ switch (cmd) {
       fail("--id must be 3-32 chars of [a-z0-9-]");
     }
     if (!args.name) fail("--name is required");
-    if (!args.issuer) fail("--issuer is required");
+    if (!args.issuer || !String(args.issuer).startsWith("https://")) {
+      fail("--issuer is required and must be https://");
+    }
     if (!args["client-id"]) fail("--client-id is required");
     if (!args.admin) fail("--admin <email> is required (repeatable)");
     if (kvGet(`tenant:${id}`)) fail(`Tenant "${id}" already exists`);
 
     const defaultHost = `${id}.${ZONE_NAME}`;
     const hostnames = [defaultHost];
-    if (args.hostname && args.hostname !== true) hostnames.push(args.hostname);
+    if (args.hostname && args.hostname !== true) {
+      hostnames.push(normalizeHostname(args.hostname));
+    }
 
     const now = Date.now();
     const tenant = {
@@ -190,6 +247,7 @@ switch (cmd) {
       tenantId: id,
       displayName: args.name,
       hostnames,
+      sessionVersion: 1,
       theme: {
         logoVersion: 0,
         ...(args.color && args.color !== true ? { primaryColor: args.color } : {}),
@@ -219,13 +277,30 @@ switch (cmd) {
 
   case "set-hostname": {
     const tenant = loadTenant(args.id);
-    const hostname = args.hostname;
-    if (!hostname || hostname === true) fail("--hostname is required");
+    if (!args.hostname || args.hostname === true) fail("--hostname is required");
+    const hostname = normalizeHostname(args.hostname);
+    assertHostAvailable(hostname, tenant.tenantId);
     if (!tenant.hostnames.includes(hostname)) tenant.hostnames.push(hostname);
     saveTenant(tenant);
     console.log(`+ ${hostname} -> ${tenant.tenantId}`);
     if (!hostname.endsWith(`.${ZONE_NAME}`)) await provisionCustomHostname(hostname);
     console.log(`! Remember the IdP redirect URI: https://${hostname}/auth/callback`);
+    break;
+  }
+
+  case "remove-hostname": {
+    const tenant = loadTenant(args.id);
+    if (!args.hostname || args.hostname === true) fail("--hostname is required");
+    const hostname = normalizeHostname(args.hostname);
+    if (!tenant.hostnames.includes(hostname)) {
+      fail(`"${hostname}" is not attached to tenant "${tenant.tenantId}"`);
+    }
+    if (tenant.hostnames.length === 1) fail("A tenant must keep at least one hostname");
+    if (hostMappingOwner(hostname) === tenant.tenantId) kvDelete(`host:${hostname}`);
+    tenant.hostnames = tenant.hostnames.filter((h) => h !== hostname);
+    saveTenant(tenant);
+    console.log(`+ ${hostname} detached from ${tenant.tenantId}`);
+    console.log(`! Remove its worker route from wrangler.jsonc + the custom hostname in the dashboard.`);
     break;
   }
 
@@ -236,7 +311,7 @@ switch (cmd) {
     const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
     const contentType = types[path.extname(file).toLowerCase()];
     if (!contentType) fail("Logo must be .png, .jpg, or .webp (SVG is rejected by design)");
-    kvPutFile(`logo:${tenant.tenantId}`, file, { contentType });
+    kvPutFile(`logo:${tenant.tenantId}`, path.resolve(file), { contentType });
     tenant.theme.logoVersion = (tenant.theme.logoVersion ?? 0) + 1;
     saveTenant(tenant);
     console.log(`+ logo updated (v${tenant.theme.logoVersion})`);
@@ -250,7 +325,10 @@ switch (cmd) {
 
   case "delete": {
     const tenant = loadTenant(args.id);
-    for (const host of tenant.hostnames) kvDelete(`host:${host}`);
+    for (const host of tenant.hostnames) {
+      // Only remove mappings this tenant actually owns — never another's.
+      if (hostMappingOwner(host) === tenant.tenantId) kvDelete(`host:${host}`);
+    }
     kvDelete(`logo:${tenant.tenantId}`);
     kvDelete(`tenant:${tenant.tenantId}`);
     console.log(`+ tenant ${tenant.tenantId} removed (custom hostnames/routes NOT touched — remove in dashboard if any)`);
@@ -258,5 +336,5 @@ switch (cmd) {
   }
 
   default:
-    fail(`Unknown command "${cmd ?? ""}" — use create | set-hostname | set-logo | show | delete`);
+    fail(`Unknown command "${cmd ?? ""}" — use create | set-hostname | remove-hostname | set-logo | show | delete`);
 }

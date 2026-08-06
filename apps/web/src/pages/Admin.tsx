@@ -196,6 +196,33 @@ export function Admin() {
           <code className="small">Redirect URI: {location.origin}/auth/callback</code>
           <CopyButton text={`${location.origin}/auth/callback`} label="Copy" />
         </div>
+        <p className="muted">
+          Emergency cutoff: signs out every user of this tenant, including you.
+          Takes effect everywhere within a few minutes.
+        </p>
+        <button
+          className="danger-outline"
+          disabled={busy}
+          onClick={() => {
+            void (async () => {
+              setBusy(true);
+              try {
+                const res = await fetch("/api/admin/tenant/revoke-sessions", {
+                  method: "POST",
+                });
+                if (res.ok) {
+                  location.assign("/");
+                } else {
+                  setNotice("Revoke failed — try again.");
+                }
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        >
+          Revoke all sessions
+        </button>
       </section>
 
       <section className="card">

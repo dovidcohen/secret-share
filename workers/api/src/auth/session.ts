@@ -31,6 +31,8 @@ export interface SessionPayload {
   name?: string;
   /** Admin at login time; admin endpoints re-check against live config. */
   adm: boolean;
+  /** Tenant sessionVersion at mint time; a config bump revokes all sessions. */
+  sv: number;
   iat: number;
   exp: number;
 }
@@ -170,6 +172,22 @@ export async function readSession(
   const token = readCookie(request, sessionCookieName(env));
   if (!token) return null;
   return verify<SessionPayload>(token, env.SESSION_SECRET, tenantId, "ss/session/v1");
+}
+
+/**
+ * The gate every protected request goes through: signature-valid AND minted
+ * under the tenant's CURRENT sessionVersion. Bumping the version (emergency
+ * revoke, authorization-policy edits) cuts off outstanding sessions without
+ * waiting out the cookie TTL.
+ */
+export async function readValidSession(
+  request: Request,
+  tenant: { tenantId: string; sessionVersion: number },
+  env: Env,
+): Promise<SessionPayload | null> {
+  const session = await readSession(request, tenant.tenantId, env);
+  if (!session || session.sv !== tenant.sessionVersion) return null;
+  return session;
 }
 
 export function clearSessionCookie(env: Env): string {
