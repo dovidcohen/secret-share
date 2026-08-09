@@ -9,3 +9,7 @@ coverage/
 
 /*.png
 apps/web/test/*.png
+
+# Internal docs & launch drafts — deliberately kept out of the public repo.
+docs/
+*.jpg
