@@ -12,6 +12,9 @@ import { DurableObject } from "cloudflare:workers";
  *   resurrect a pre-revocation value; the DO serializes every epoch write.
  */
 
+/** Reserved UsageDO id for the public (non-tenant) product pool. */
+export const PUBLIC_USAGE_ID = "__public__";
+
 export type UsageKind =
   | "drop_created"
   | "drop_claimed"

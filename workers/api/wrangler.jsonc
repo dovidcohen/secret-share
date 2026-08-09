@@ -49,7 +49,7 @@
   // logo:<id>, plus cached OIDC discovery/JWKS documents.
   "kv_namespaces": [{ "binding": "TENANTS", "id": "aa9ecd5b4bf84ae6aa6b13b1df939573" }],
   // Usage alert: check request volume against the free-tier daily cap.
-  "triggers": { "crons": ["7 */6 * * *"] },
+  "triggers": { "crons": ["7 */6 * * *", "0 13 * * *"] },
   // No destination_address here: it can send to any verified Email Routing
   // destination, and the recipient (ALERT_TO) is a secret, not public config.
   "send_email": [{ "name": "ALERT_EMAIL" }],

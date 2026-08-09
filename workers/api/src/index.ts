@@ -11,7 +11,8 @@ import { marketingRedirect, rewriteHtmlForTenant, serveLogo } from "./branding.j
 import { handleAuth } from "./auth/routes.js";
 import { readValidSession } from "./auth/session.js";
 import { handleAdmin } from "./admin.js";
-import { recordUsage } from "./usagedo.js";
+import { PUBLIC_USAGE_ID, recordUsage } from "./usagedo.js";
+import { sendDailyDigest } from "./usage.js";
 
 export { MailboxDO } from "./mailbox.js";
 export { UsageDO } from "./usagedo.js";
@@ -52,9 +53,6 @@ function isRateLimited(request: Request, pathname: string): boolean {
 function json(status: number, body: unknown): Response {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
-
-/** Reserved UsageDO id for the public (non-tenant) product pool. */
-const PUBLIC_USAGE_ID = "__public__";
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -370,7 +368,13 @@ export default {
     return hardened;
   },
 
-  async scheduled(_controller, env, ctx): Promise<void> {
-    ctx.waitUntil(checkUsage(env));
+  async scheduled(controller, env, ctx): Promise<void> {
+    // Daily digest at 13:00 UTC (~morning US Eastern); the 6-hourly trigger
+    // keeps doing the free-tier cap check.
+    if (controller.cron === "0 13 * * *") {
+      ctx.waitUntil(sendDailyDigest(env));
+    } else {
+      ctx.waitUntil(checkUsage(env));
+    }
   },
 } satisfies ExportedHandler<Env>;

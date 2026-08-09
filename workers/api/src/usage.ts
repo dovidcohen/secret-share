@@ -1,4 +1,5 @@
 import { EmailMessage } from "cloudflare:email";
+import { PUBLIC_USAGE_ID } from "./usagedo.js";
 
 /**
  * Free-plan Workers get 100k requests/day; past that, requests fail until
@@ -76,4 +77,88 @@ export async function checkUsage(env: Env): Promise<void> {
   ].join("\r\n");
 
   await env.ALERT_EMAIL.send(new EmailMessage(env.ALERT_FROM, env.ALERT_TO, raw));
+}
+
+export interface PublicDigest {
+  yesterday: string;
+  sentYesterday: number;
+  claimedYesterday: number;
+  sentWeek: number;
+  claimedWeek: number;
+}
+
+const DAY_MS = 86_400_000;
+const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+/**
+ * Public product activity for the digest: yesterday, plus a rolling 7-day
+ * window. `now` is injectable for tests. Counts come from the public UsageDO,
+ * so they exclude bots and asset traffic — a send is a real send.
+ */
+export async function computePublicDigest(
+  env: Env,
+  now: number = Date.now(),
+): Promise<PublicDigest> {
+  const yesterday = isoDay(now - DAY_MS);
+  const from = isoDay(now - 7 * DAY_MS);
+  const to = isoDay(now);
+  const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${PUBLIC_USAGE_ID}`));
+  const res = await stub.fetch(
+    `https://usage/internal/read?from=${from}&to=${to}`,
+  );
+  const days = res.ok
+    ? ((await res.json()) as { days: { day: string; kind: string; count: number }[] }).days
+    : [];
+  const dayKind = (d: string, k: string) =>
+    days.filter((r) => r.day === d && r.kind === k).reduce((n, r) => n + r.count, 0);
+  const weekKind = (k: string) =>
+    days.filter((r) => r.kind === k).reduce((n, r) => n + r.count, 0);
+  return {
+    yesterday,
+    sentYesterday: dayKind(yesterday, "drop_created"),
+    claimedYesterday: dayKind(yesterday, "drop_claimed"),
+    sentWeek: weekKind("drop_created"),
+    claimedWeek: weekKind("drop_claimed"),
+  };
+}
+
+/**
+ * Daily email digest of real public-product usage. Stays silent when the
+ * product has been fully dormant for the whole window, so a quiet inbox never
+ * gets a daily "0 sends" — the digest resumes the day real activity returns.
+ */
+export async function sendDailyDigest(env: Env): Promise<void> {
+  if (!env.ALERT_TO) return; // not configured
+
+  const d = await computePublicDigest(env);
+  if (d.sentWeek === 0 && d.claimedWeek === 0) {
+    console.log("daily-digest: dormant week, skipping email");
+    return;
+  }
+
+  const s = (n: number) => (n === 1 ? "" : "s");
+  const subject = `shareasecret.io: ${d.sentYesterday} send${s(d.sentYesterday)} yesterday (${d.sentWeek} this week)`;
+  const raw = [
+    `From: Secret Share Alerts <${env.ALERT_FROM}>`,
+    `To: ${env.ALERT_TO}`,
+    `Subject: ${subject}`,
+    `Message-ID: <digest-${d.yesterday}@shareasecret.io>`,
+    "Content-Type: text/plain; charset=utf-8",
+    "",
+    `Public product activity (real sends/claims — bots and page loads excluded).`,
+    "",
+    `Yesterday (${d.yesterday}):`,
+    `  Secrets sent:      ${d.sentYesterday}`,
+    `  Secrets retrieved: ${d.claimedYesterday}`,
+    "",
+    `Last 7 days:`,
+    `  Secrets sent:      ${d.sentWeek}`,
+    `  Secrets retrieved: ${d.claimedWeek}`,
+    "",
+    "Counts started 2026-08-09 and are not retroactive. This digest is silent",
+    "on weeks with no activity at all.",
+  ].join("\r\n");
+
+  await env.ALERT_EMAIL.send(new EmailMessage(env.ALERT_FROM, env.ALERT_TO, raw));
+  console.log(`daily-digest: sent (${d.sentYesterday} yesterday, ${d.sentWeek} week)`);
 }

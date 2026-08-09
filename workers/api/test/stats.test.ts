@@ -1,6 +1,7 @@
-import { SELF } from "cloudflare:test";
+import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { mailboxId, makeTags, dropBody } from "./helpers.js";
+import { computePublicDigest } from "../src/usage.js";
 
 const APEX = "https://shareasecret.io";
 
@@ -50,5 +51,24 @@ describe("public stats endpoint", () => {
 
     expect(await publicCount("drop_created")).toBeGreaterThan(before);
     expect(await publicCount("drop_claimed")).toBeGreaterThan(0);
+  });
+});
+
+describe("daily digest", () => {
+  it("rolls today's public activity into the yesterday/week figures", async () => {
+    // A real public send lands under today's date...
+    const id = mailboxId();
+    const t = await makeTags();
+    await SELF.fetch(`${APEX}/api/drops/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: dropBody(t),
+    });
+    await publicCount("drop_created"); // let the fire-and-forget write settle
+
+    // ...so viewed from "tomorrow", it counts as yesterday and in the week.
+    const digest = await computePublicDigest(env, Date.now() + 86_400_000);
+    expect(digest.sentYesterday).toBeGreaterThan(0);
+    expect(digest.sentWeek).toBeGreaterThanOrEqual(digest.sentYesterday);
   });
 });
