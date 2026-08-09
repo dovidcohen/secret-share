@@ -16,6 +16,8 @@ declare global {
     /** HMAC root for session cookies (secret). Per-tenant OIDC client secrets are
      * separate Worker secrets named OIDC_CLIENT_SECRET_<TENANTID>. */
     SESSION_SECRET?: string;
+    /** Bearer secret for GET /api/stats (public product counters). Unset -> 404. */
+    STATS_TOKEN?: string;
     /** "dev" via .dev.vars under `wrangler dev`; unset in production. */
     ENVIRONMENT?: string;
     /** Workers rate-limiting bindings; optional so local dev works without them. */

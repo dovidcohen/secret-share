@@ -53,6 +53,33 @@ function json(status: number, body: unknown): Response {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 
+/** Reserved UsageDO id for the public (non-tenant) product pool. */
+const PUBLIC_USAGE_ID = "__public__";
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** GET /api/stats?from=&to= — daily public drop_created/drop_claimed counts. */
+async function publicStats(request: Request, url: URL, env: Env): Promise<Response> {
+  if (!env.STATS_TOKEN) return json(404, { error: "NOT_FOUND" });
+  const auth = request.headers.get("Authorization") ?? "";
+  const presented = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!timingSafeEqual(presented, env.STATS_TOKEN)) {
+    return json(401, { error: "AUTH_REQUIRED" });
+  }
+  const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${PUBLIC_USAGE_ID}`));
+  const from = url.searchParams.get("from") ?? "";
+  const to = url.searchParams.get("to") ?? "";
+  const res = await stub.fetch(
+    `https://usage/internal/read?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+  );
+  return json(res.status, await res.json());
+}
+
 /**
  * Tenant mailboxes live in a namespaced DO ("tenantId:XKQ2M7PT"); ":" is
  * outside the Crockford alphabet, so tenant pools can never collide with the
@@ -283,6 +310,12 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
       return mintTurnCredentials(request, env, tenant);
     }
 
+    // Public product metrics (real sends/claims per day), token-gated so
+    // business numbers aren't world-readable. Works on any host.
+    if (pathname === "/api/stats" && request.method === "GET") {
+      return publicStats(request, url, env);
+    }
+
     const mailboxId = mailboxIdFor(pathname);
     if (!mailboxId) {
       return json(404, { error: "NOT_FOUND" });
@@ -304,12 +337,13 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxDoName(mailboxId, tenant)));
     const res = await stub.fetch(forwarded);
 
-    if (tenant) {
-      if (request.method === "PUT" && res.status === 201) {
-        recordUsage(env, ctx, tenant.tenantId, "drop_created");
-      } else if (pathname.endsWith("/claim") && res.status === 200) {
-        recordUsage(env, ctx, tenant.tenantId, "drop_claimed");
-      }
+    // Metered for tenants and the public product alike; the public pool uses
+    // a reserved counter id (tenant ids are [a-z0-9-], so no collision).
+    const usageId = tenant ? tenant.tenantId : PUBLIC_USAGE_ID;
+    if (request.method === "PUT" && res.status === 201) {
+      recordUsage(env, ctx, usageId, "drop_created");
+    } else if (pathname.endsWith("/claim") && res.status === 200) {
+      recordUsage(env, ctx, usageId, "drop_claimed");
     }
     return res;
   }
