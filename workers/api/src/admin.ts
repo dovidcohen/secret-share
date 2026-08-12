@@ -1,9 +1,14 @@
 import { z } from "zod";
-import { invalidateTenant, loadTenant } from "./tenant/registry.js";
+import { loadTenant, saveTenant } from "./tenant/registry.js";
 import { TenantConfigSchema, type TenantConfig } from "./tenant/schema.js";
 import { readValidSession } from "./auth/session.js";
 import { bumpSessionEpoch } from "./auth/epoch.js";
 import { isAdminIdentity } from "./auth/routes.js";
+import {
+  billingSummary,
+  createCheckoutSession,
+  createPortalSession,
+} from "./billing.js";
 
 /**
  * /api/admin/* — tenant hosts only, session required, and the admin bit is
@@ -18,6 +23,11 @@ import { isAdminIdentity } from "./auth/routes.js";
 const MAX_LOGO_BYTES = 200 * 1024;
 // SVG rejected: script-in-svg makes it a stored-XSS vector if ever fetched top-level.
 const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+const CheckoutRequestSchema = z.object({
+  plan: z.enum(["team", "business"]),
+  interval: z.enum(["monthly", "yearly"]),
+});
 
 const AdminEditSchema = z.object({
   displayName: z.string().min(1).max(80).optional(),
@@ -77,6 +87,32 @@ export async function handleAdmin(
   if (url.pathname === "/api/admin/usage" && request.method === "GET") {
     return usage(url, live, env);
   }
+  if (url.pathname === "/api/admin/billing" && request.method === "GET") {
+    return json(200, billingSummary(live, env));
+  }
+  if (url.pathname === "/api/admin/billing/checkout" && request.method === "POST") {
+    if (!env.STRIPE_SECRET_KEY) return json(404, { error: "NOT_FOUND" });
+    const body = CheckoutRequestSchema.safeParse(await request.json().catch(() => null));
+    if (!body.success) return json(400, { error: "BAD_REQUEST" });
+    const checkoutUrl = await createCheckoutSession(
+      live,
+      body.data.plan,
+      body.data.interval,
+      url.origin,
+      session.email,
+      env,
+    );
+    return checkoutUrl
+      ? json(200, { url: checkoutUrl })
+      : json(503, { error: "BILLING_UNAVAILABLE" });
+  }
+  if (url.pathname === "/api/admin/billing/portal" && request.method === "POST") {
+    if (!env.STRIPE_SECRET_KEY) return json(404, { error: "NOT_FOUND" });
+    const portalUrl = await createPortalSession(live, url.origin, env);
+    return portalUrl
+      ? json(200, { url: portalUrl })
+      : json(503, { error: "BILLING_UNAVAILABLE" });
+  }
   if (url.pathname === "/api/admin/tenant/revoke-sessions" && request.method === "POST") {
     // Emergency cutoff: every outstanding session (including the caller's)
     // stops validating. The epoch write is serialized in the tenant DO, so
@@ -85,12 +121,6 @@ export async function handleAdmin(
     return json(200, { revoked: true });
   }
   return json(404, { error: "NOT_FOUND" });
-}
-
-async function saveTenant(tenant: TenantConfig, env: Env): Promise<void> {
-  tenant.updatedAt = Date.now();
-  await env.TENANTS.put(`tenant:${tenant.tenantId}`, JSON.stringify(tenant));
-  invalidateTenant(tenant);
 }
 
 async function editTenant(

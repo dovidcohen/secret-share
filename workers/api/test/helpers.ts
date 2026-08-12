@@ -23,6 +23,7 @@ export async function seedTenant(
     adminSubjects?: string[];
     displayName?: string;
     footerText?: string;
+    billing?: TenantConfig["billing"];
   } = {},
 ): Promise<TenantConfig> {
   const tenantId = uniqueTenantId();
@@ -46,6 +47,7 @@ export async function seedTenant(
     adminEmails: overrides.adminEmails ?? ["admin@acme.test"],
     adminSubjects: overrides.adminSubjects ?? [],
     features: { guestGrants: true, liveSend: true, ...overrides.features },
+    ...(overrides.billing ? { billing: overrides.billing } : {}),
     createdAt: now,
     updatedAt: now,
   };

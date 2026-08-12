@@ -11,6 +11,7 @@ import { marketingRedirect, rewriteHtmlForTenant, serveLogo } from "./branding.j
 import { handleAuth } from "./auth/routes.js";
 import { readValidSession } from "./auth/session.js";
 import { handleAdmin } from "./admin.js";
+import { entitlement, entitlementDenied, handleStripeWebhook } from "./billing.js";
 import { PUBLIC_USAGE_ID, recordUsage } from "./usagedo.js";
 import { sendDailyDigest } from "./usage.js";
 
@@ -166,6 +167,8 @@ async function mintGrant(
 ): Promise<Response> {
   if (!tenant.features.guestGrants) return json(404, { error: "NOT_FOUND" });
   if (crossSiteOrigin(request, url)) return json(403, { error: "NOT_ALLOWED" });
+  const entitled = entitlement(tenant);
+  if (!entitled.ok) return entitlementDenied(entitled.reason);
   const session = await readValidSession(request, tenant, env);
   if (!session) return json(401, { error: "AUTH_REQUIRED" });
 
@@ -201,6 +204,11 @@ async function tenantMailboxAuth(
     WS_ROUTE.test(pathname) && url.searchParams.get("role") === "sender";
 
   if (!isCreate && !isSenderWs) return { header: "public" };
+
+  // Sending is the paid surface; claiming stays open above so already-sent
+  // secrets outlive a lapsed subscription.
+  const entitled = entitlement(tenant);
+  if (!entitled.ok) return { deny: entitlementDenied(entitled.reason) };
 
   const session = await readValidSession(request, tenant, env);
   if (session) {
@@ -306,6 +314,11 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     if (pathname === "/api/turn" && request.method === "POST") {
       return mintTurnCredentials(request, env, tenant);
+    }
+
+    // Stripe subscription lifecycle; the HMAC over the raw body is the auth.
+    if (pathname === "/api/billing/webhook" && request.method === "POST") {
+      return handleStripeWebhook(request, env);
     }
 
     // Public product metrics (real sends/claims per day), token-gated so

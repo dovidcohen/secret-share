@@ -34,6 +34,15 @@ declare global {
     ALERT_FROM: string;
     /** Alert recipient — a secret, so the address stays out of the public repo. */
     ALERT_TO?: string;
+    /** Stripe billing (secrets). All unset -> billing endpoints 404 and every
+     * tenant stays entitled, so the platform runs unchanged without payments. */
+    STRIPE_SECRET_KEY?: string;
+    STRIPE_WEBHOOK_SECRET?: string;
+    /** Stripe price ids (vars; created by scripts/setup-stripe.mjs). */
+    STRIPE_PRICE_TEAM_MONTHLY?: string;
+    STRIPE_PRICE_TEAM_YEARLY?: string;
+    STRIPE_PRICE_BUSINESS_MONTHLY?: string;
+    STRIPE_PRICE_BUSINESS_YEARLY?: string;
   }
 }
 

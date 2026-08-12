@@ -8,6 +8,8 @@
 //     --issuer https://login.microsoftonline.com/<dir-tenant-id>/v2.0 \
 //     --client-id <guid> --admin admin@fordmed.com [--hostname secrets.fordmed.com]
 //     [--color "#0e7490"] [--idp-label "FordMed (Microsoft)"] [--domain fordmed.com]
+//     [--plan trial|team|business|partner] [--trial-days 14]
+//   node scripts/provision-tenant.mjs set-plan --id fordmed --plan partner
 //   node scripts/provision-tenant.mjs set-logo --id fordmed --file ./logo.png
 //   node scripts/provision-tenant.mjs set-hostname --id fordmed --hostname secrets.fordmed.com
 //   node scripts/provision-tenant.mjs remove-hostname --id fordmed --hostname secrets.fordmed.com
@@ -197,6 +199,28 @@ async function provisionCustomHostname(hostname) {
   console.log(`! Customer DNS required: ${hostname} CNAME fallback.${ZONE_NAME}`);
 }
 
+/**
+ * Billing block for a plan choice. Stripe's webhook takes over as the writer
+ * once a real subscription exists — this is for provisioning and comps.
+ * "partner" = design partner: active forever, no Stripe object behind it.
+ */
+function billingFor(plan, trialDays) {
+  const plans = new Set(["trial", "team", "business", "partner"]);
+  if (!plans.has(plan)) fail(`--plan must be one of ${[...plans].join(" | ")}`);
+  if (plan === "trial") {
+    const days = Number(trialDays ?? 14);
+    if (!Number.isInteger(days) || days < 1 || days > 90) {
+      fail("--trial-days must be an integer between 1 and 90");
+    }
+    return {
+      plan: "trial",
+      status: "trialing",
+      trialEndsAt: Date.now() + days * 86_400_000,
+    };
+  }
+  return { plan, status: "active" };
+}
+
 // ---------- commands ----------
 
 const args = parseArgs(process.argv.slice(2));
@@ -267,6 +291,7 @@ switch (cmd) {
       // with set-admin-subject afterwards, which disables email-based admin.
       adminSubjects: [],
       features: { guestGrants: true, liveSend: true },
+      billing: billingFor(args.plan === undefined || args.plan === true ? "trial" : args.plan, args["trial-days"]),
       createdAt: now,
       updatedAt: now,
     };
@@ -329,6 +354,24 @@ switch (cmd) {
     break;
   }
 
+  case "set-plan": {
+    const tenant = loadTenant(args.id);
+    if (!args.plan || args.plan === true) fail("--plan is required");
+    const hadSubscription = Boolean(tenant.billing?.stripeSubscriptionId);
+    // Stripe ids survive a manual plan change so the portal keeps working.
+    tenant.billing = { ...tenant.billing, ...billingFor(args.plan, args["trial-days"]) };
+    if (tenant.billing.plan !== "trial") delete tenant.billing.trialEndsAt;
+    saveTenant(tenant);
+    console.log(`+ ${tenant.tenantId} billing: ${JSON.stringify(tenant.billing)}`);
+    if (hadSubscription) {
+      console.log(
+        `! This tenant has a live Stripe subscription — the next webhook event will` +
+          ` overwrite this. Cancel or change the subscription in Stripe instead.`,
+      );
+    }
+    break;
+  }
+
   case "set-logo": {
     const tenant = loadTenant(args.id);
     const file = args.file;
@@ -361,5 +404,5 @@ switch (cmd) {
   }
 
   default:
-    fail(`Unknown command "${cmd ?? ""}" — use create | set-hostname | remove-hostname | set-admin-subject | set-logo | show | delete`);
+    fail(`Unknown command "${cmd ?? ""}" — use create | set-hostname | remove-hostname | set-admin-subject | set-plan | set-logo | show | delete`);
 }

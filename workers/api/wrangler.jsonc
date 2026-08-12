@@ -13,7 +13,10 @@
     // Cloudflare-for-SaaS custom hostnames — one route per vanity domain.
     // NOTE: the route can only be created AFTER the custom hostname exists in
     // the zone (wrangler rejects it otherwise); add per tenant, post-creation.
-    { "pattern": "secrets.fordmed.com/*", "zone_name": "shareasecret.io" }
+    { "pattern": "secrets.fordmed.com/*", "zone_name": "shareasecret.io" },
+    { "pattern": "secrets.acgases.com/*", "zone_name": "shareasecret.io" },
+    { "pattern": "secrets.macwoundsolutions.com/*", "zone_name": "shareasecret.io" },
+    { "pattern": "secrets.br-dj.com/*", "zone_name": "shareasecret.io" }
   ],
   // run_worker_first: true so the Worker can stamp security headers on every
   // asset response, not just API routes.
@@ -56,7 +59,14 @@
   "vars": {
     "CF_ACCOUNT_ID": "b1c0bee581e5bd9e6b843bfb9cd1c587",
     "USAGE_ALERT_THRESHOLD": "80000",
-    "ALERT_FROM": "alerts@shareasecret.io"
+    "ALERT_FROM": "alerts@shareasecret.io",
+    // Stripe price ids (not secrets; TEST MODE — replace at go-live via
+    // `node scripts/setup-stripe.mjs` with the live key).
+    "STRIPE_PRICE_TEAM_MONTHLY": "price_1U3MlcFE4GlHDZsMeuSi0dZf",
+    "STRIPE_PRICE_TEAM_YEARLY": "price_1U3MldFE4GlHDZsMNn3o3rwV",
+    "STRIPE_PRICE_BUSINESS_MONTHLY": "price_1U3MleFE4GlHDZsMY7nyuDad",
+    "STRIPE_PRICE_BUSINESS_YEARLY": "price_1U3MleFE4GlHDZsMxNqKHlfl"
+    // Secrets (wrangler secret put): STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET.
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["MailboxDO"] },

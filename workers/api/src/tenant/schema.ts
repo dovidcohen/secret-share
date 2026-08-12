@@ -66,6 +66,26 @@ export const TenantConfigSchema = z.object({
       liveSend: z.boolean().default(true),
     })
     .default({ guestGrants: true, liveSend: true }),
+  /**
+   * Subscription state, written by the Stripe webhook and the provisioning
+   * script — never by tenant admins. Absent on legacy/design-partner tenants,
+   * which stay fully entitled (see entitlement() in billing.ts).
+   */
+  billing: z
+    .object({
+      plan: z.enum(["trial", "team", "business", "partner"]),
+      status: z.enum(["trialing", "active", "past_due", "canceled"]),
+      /** Epoch ms; sender actions are blocked once this passes (trials only). */
+      trialEndsAt: z.number().optional(),
+      stripeCustomerId: z.string().optional(),
+      stripeSubscriptionId: z.string().optional(),
+      /** Epoch ms of the current paid period's end (informational). */
+      currentPeriodEnd: z.number().optional(),
+      /** Portal cancel = end-of-period: still active (and entitled) until
+       * currentPeriodEnd, then the deletion webhook flips status to canceled. */
+      cancelAtPeriodEnd: z.boolean().optional(),
+    })
+    .optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

@@ -90,3 +90,10 @@ export async function loadTenant(
 export function invalidateTenant(tenant: TenantConfig): void {
   for (const host of tenant.hostnames) cache.delete(host);
 }
+
+/** Persist a config (admin edits, billing webhook) and drop the stale cache copy. */
+export async function saveTenant(tenant: TenantConfig, env: Env): Promise<void> {
+  tenant.updatedAt = Date.now();
+  await env.TENANTS.put(`tenant:${tenant.tenantId}`, JSON.stringify(tenant));
+  invalidateTenant(tenant);
+}
