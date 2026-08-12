@@ -15,6 +15,7 @@ export default defineConfig({
         "guide-api": page("guides/send-api-key-securely.html"),
         "guide-cli": page("guides/cli.html"),
         compare: page("compare/secret-sharing-tools.html"),
+        business: page("business.html"),
         blog: page("blog.html"),
         "blog-park-first": page("blog/park-first-secret-sharing.html"),
       },

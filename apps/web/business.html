@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>White-label secret sharing for your company — Secret Share Business</title>
+  <meta name="description" content="Give your team a branded, SSO-gated portal for sending passwords and credentials — your logo, your domain, your identity provider. Zero-knowledge: the platform only ever sees ciphertext. From $49/month flat." />
+  <link rel="canonical" href="https://shareasecret.io/business" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/guides.css" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="White-label secret sharing for your company" />
+  <meta property="og:description" content="A branded, SSO-gated portal for one-time secrets. Your logo, your domain, your identity provider. From $49/month flat — no per-user pricing." />
+  <meta property="og:url" content="https://shareasecret.io/business" />
+  <meta property="og:image" content="https://shareasecret.io/og.png" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Product",
+   "name":"Secret Share for Business",
+   "description":"White-label one-time secret sharing: a branded portal gated by your own single sign-on, with guest request links and usage reporting.",
+   "brand":{"@type":"Organization","name":"Secret Share"},
+   "offers":[
+     {"@type":"Offer","name":"Team","price":"49","priceCurrency":"USD",
+      "priceSpecification":{"@type":"UnitPriceSpecification","price":"49","priceCurrency":"USD","billingIncrement":1,"unitText":"month"}},
+     {"@type":"Offer","name":"Business","price":"99","priceCurrency":"USD",
+      "priceSpecification":{"@type":"UnitPriceSpecification","price":"99","priceCurrency":"USD","billingIncrement":1,"unitText":"month"}}
+   ]}
+  </script>
+</head>
+<body>
+  <header class="site">
+    <a class="brand" href="/"><span>⧉</span> Secret Share</a>
+    <a class="cta-button" href="mailto:sales@shareasecret.io?subject=Secret%20Share%20trial">Start a free trial</a>
+  </header>
+  <main>
+    <article>
+      <h1>Your company's secret-sharing portal — your brand, your SSO</h1>
+      <p class="byline">
+        The same zero-knowledge, read-once secret sharing that runs shareasecret.io,
+        served as <em>your</em> tool: your logo and colors, your domain, and sending
+        gated by your own identity provider. IT hands out one URL; everyone stops
+        pasting passwords into email and chat.
+      </p>
+
+      <h2>What your team gets</h2>
+      <ul>
+        <li><strong>Your identity provider at the door.</strong> Employees sign in with Microsoft Entra ID, Okta, or any OIDC provider — your groups and app roles decide who can send. Disable someone in your directory and their access goes with them.</li>
+        <li><strong>Your brand, end to end.</strong> Logo, accent color, product name, and footer text — recipients see your company's tool, not ours. Business plans run it on your own domain, like <code>secrets.yourcompany.com</code>, with TLS handled for you.</li>
+        <li><strong>Zero-knowledge by construction.</strong> Secrets are encrypted in the sender's browser with keys derived from the share code; neither your company nor the platform can read them. Read-once and auto-expiry always on.</li>
+        <li><strong>Guest "request a secret" links.</strong> Need a credential <em>from</em> a vendor or client? Send them a one-time link — they don't need an account, and what they submit is end-to-end encrypted to you.</li>
+        <li><strong>Admin console and usage stats.</strong> Branding self-service, per-day send/receive counts, and an emergency switch that signs out every user at once.</li>
+        <li><strong>Nothing to host, nothing to patch.</strong> Runs on the same hardened multi-tenant platform as the public product, with per-tenant key isolation.</li>
+      </ul>
+
+      <h2>Pricing — flat per organization, not per user</h2>
+      <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Team — $49/mo</th>
+            <th>Business — $99/mo</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th>Branded portal (logo, colors, product name)</th><td class="y">Yes</td><td class="y">Yes</td></tr>
+          <tr><th>Your own SSO (Entra ID, Okta, any OIDC)</th><td class="y">Yes</td><td class="y">Yes</td></tr>
+          <tr><th>Users</th><td class="y">Unlimited</td><td class="y">Unlimited</td></tr>
+          <tr><th>Guest request links</th><td class="y">Yes</td><td class="y">Yes</td></tr>
+          <tr><th>Admin console + usage stats</th><td class="y">Yes</td><td class="y">Yes</td></tr>
+          <tr><th>Hostname</th><td>yourname.shareasecret.io</td><td class="y">Your own domain (secrets.yourcompany.com)</td></tr>
+          <tr><th>Support</th><td>Standard</td><td class="y">Priority</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>
+        Pay yearly and get two months free ($490/yr and $990/yr). Every plan starts
+        with a <strong>14-day free trial — no card required</strong>. We set up your
+        tenant with you (SSO details and branding), which usually takes under an hour
+        of your IT team's time.
+      </p>
+
+      <h2>Why not just use the free site?</h2>
+      <p>
+        Please do — shareasecret.io stays free. The business tier exists for the
+        moment a tool becomes <em>policy</em>: you want sending restricted to your
+        staff, a URL your employees recognize and attackers can't imitate with a
+        look-alike, and an audit trail of how much the tool is actually used.
+        That's what SSO gating, custom domains, and the admin console are for.
+      </p>
+
+      <h2>Common questions</h2>
+      <p><strong>Can you read our secrets?</strong> No. Keys are derived from the
+      share code in the sender's browser and never reach the server. We see
+      ciphertext, timing, and counts — nothing else. This is the same protocol as
+      the public product, <a href="https://github.com/dovidcohen/secret-share">source on GitHub</a>.</p>
+      <p><strong>Do recipients need accounts?</strong> No. Receiving is always
+      open — the one-time code is the credential. Only <em>sending</em> requires
+      sign-in on your portal.</p>
+      <p><strong>What about vendors who need to send us credentials?</strong>
+      That's the guest request link: your employee generates it signed-in, the
+      outsider uses it once, unauthenticated, end-to-end encrypted.</p>
+      <p><strong>How do trials work?</strong> 14 days, full Business features, no
+      card. Email us, we provision your tenant, you connect your IdP with our
+      step-by-step guide, done.</p>
+
+      <div class="cta">
+        <p><strong>Start your 14-day trial</strong> — no card, set up in under an hour.</p>
+        <a class="cta-button" href="mailto:sales@shareasecret.io?subject=Secret%20Share%20trial&body=Company%20name%3A%0AIdentity%20provider%20(Entra%2FOkta%2Fother)%3A%0APreferred%20subdomain%3A%20________.shareasecret.io">Request a trial →</a>
+      </div>
+    </article>
+  </main>
+  <footer class="site">
+    <ul>
+      <li><a href="/">Secret Share</a></li>
+      <li><a href="/compare/secret-sharing-tools">Compare tools</a></li>
+      <li><a href="/guides/cli">CLI: npx shareasecret</a></li>
+      <li><a href="/guides/send-ssh-key-securely">Send an SSH key securely</a></li>
+      <li><a href="/blog">Engineering blog</a></li>
+      <li><a href="https://github.com/dovidcohen/secret-share">Source code</a></li>
+    </ul>
+  </footer>
+</body>
+</html>

@@ -153,6 +153,8 @@ export function App() {
             <a href="/compare/secret-sharing-tools">Compare tools</a>
             {" · "}
             <a href="/blog">Engineering blog</a>
+            {" · "}
+            <a href="/business">For teams: your brand + SSO</a>
           </p>
         </footer>
       )}

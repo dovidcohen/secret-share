@@ -9,7 +9,7 @@ import { brandingFor, type TenantConfig } from "./tenant/schema.js";
  */
 
 /** Marketing/SEO paths have no place on a customer's white-label host. */
-const MARKETING_PATH = /^\/(guides|blog|compare)(\/|$)/;
+const MARKETING_PATH = /^\/(guides|blog|compare|business)(\/|$)/;
 
 export function marketingRedirect(url: URL): Response | null {
   if (!MARKETING_PATH.test(url.pathname)) return null;

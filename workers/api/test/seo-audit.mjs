@@ -10,6 +10,7 @@ const PAGES = [
   "/guides/send-api-key-securely",
   "/guides/cli",
   "/compare/secret-sharing-tools",
+  "/business",
   "/blog",
   "/blog/park-first-secret-sharing",
 ];
