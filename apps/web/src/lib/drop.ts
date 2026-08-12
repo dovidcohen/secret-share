@@ -23,6 +23,10 @@ export class BadTagError extends Error {
 export class SessionExpiredError extends Error {
   override name = "SessionExpiredError";
 }
+/** Tenant host said 402: the org's trial or subscription has lapsed. */
+export class PlanInactiveError extends Error {
+  override name = "PlanInactiveError";
+}
 /** A guest-send grant was refused; `reason` drives the copy on the /give page. */
 export class GrantRejectedError extends Error {
   override name = "GrantRejectedError";
@@ -56,6 +60,7 @@ export async function parkDrop(
     }),
   });
   if (res.status === 401) throw new SessionExpiredError();
+  if (res.status === 402) throw new PlanInactiveError();
   if (res.status === 403) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new GrantRejectedError(

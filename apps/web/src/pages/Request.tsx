@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { generateCode } from "@secret-share/crypto";
 import { GrantMintConflictError, mintGrant, packGiveFragment } from "../lib/grant.js";
-import { SessionExpiredError } from "../lib/drop.js";
+import { PlanInactiveError, SessionExpiredError } from "../lib/drop.js";
 import { loginUrl } from "../lib/auth.js";
 import { useSession } from "../lib/session.js";
 import { useTenant } from "../lib/tenant.js";
@@ -72,7 +72,9 @@ export function Request() {
       setError(
         e instanceof SessionExpiredError
           ? "Your session expired — sign in again, then retry."
-          : e instanceof Error
+          : e instanceof PlanInactiveError
+            ? "Request links are paused because your organization's trial or subscription has ended. An admin can reactivate it from the Admin page."
+            : e instanceof Error
             ? e.message
             : String(e),
       );

@@ -12,7 +12,13 @@ import {
   utf8,
   type DerivedKeys,
 } from "@secret-share/crypto";
-import { DropExistsError, SessionExpiredError, parkDrop, revokeDrop } from "../lib/drop.js";
+import {
+  DropExistsError,
+  PlanInactiveError,
+  SessionExpiredError,
+  parkDrop,
+  revokeDrop,
+} from "../lib/drop.js";
 import { Signaling } from "../lib/ws.js";
 import { senderLiveTransfer } from "../lib/rtc.js";
 import { loginUrl } from "../lib/auth.js";
@@ -102,6 +108,14 @@ export function Send() {
       if (e instanceof SessionExpiredError) {
         // The typed secret stays in state; redirecting this tab would destroy it.
         setPhase("expired");
+        return;
+      }
+      if (e instanceof PlanInactiveError) {
+        setError(
+          "Sending is paused because your organization's trial or subscription " +
+            "has ended. An admin can reactivate it from the Admin page.",
+        );
+        setPhase("error");
         return;
       }
       setError(e instanceof Error ? e.message : String(e));

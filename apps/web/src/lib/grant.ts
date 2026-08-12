@@ -1,5 +1,5 @@
 import { CreateGrantResponseSchema } from "@secret-share/protocol";
-import { SessionExpiredError } from "./drop.js";
+import { PlanInactiveError, SessionExpiredError } from "./drop.js";
 
 /**
  * Guest-send ("request a secret") link plumbing. Both the share code and the
@@ -40,6 +40,7 @@ export async function mintGrant(
     body: JSON.stringify({ mailboxId }),
   });
   if (res.status === 401) throw new SessionExpiredError();
+  if (res.status === 402) throw new PlanInactiveError();
   if (res.status === 409) throw new GrantMintConflictError();
   if (!res.ok) throw new Error(`Could not create the request link (${res.status})`);
   return CreateGrantResponseSchema.parse(await res.json());

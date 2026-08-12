@@ -18,6 +18,24 @@ interface UsageDay {
   count: number;
 }
 
+interface BillingSummary {
+  plan: "trial" | "team" | "business" | "partner";
+  status: "trialing" | "active" | "past_due" | "canceled";
+  trialEndsAt: number | null;
+  currentPeriodEnd: number | null;
+  cancelAtPeriodEnd: boolean;
+  canManage: boolean;
+  canUpgrade: boolean;
+  sendingBlocked: "trial_expired" | "canceled" | null;
+}
+
+const PLAN_LABELS: Record<BillingSummary["plan"], string> = {
+  trial: "Free trial",
+  team: "Team",
+  business: "Business",
+  partner: "Design partner",
+};
+
 /**
  * Deliberately minimal tenant self-service: branding and a usage readout.
  * Identity-provider wiring and hostnames are provisioning-script territory.
@@ -28,6 +46,9 @@ export function Admin() {
   const [config, setConfig] = useState<AdminTenant | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [usage, setUsage] = useState<UsageDay[] | null>(null);
+  const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [yearly, setYearly] = useState(false);
+  const [billingNotice, setBillingNotice] = useState("");
   const [color, setColor] = useState("#2563eb");
   const [footerText, setFooterText] = useState("");
   const [productName, setProductName] = useState("");
@@ -54,7 +75,45 @@ export function Admin() {
       if (usageRes.ok) {
         setUsage(((await usageRes.json()) as { days: UsageDay[] }).days);
       }
+      const billingRes = await fetch("/api/admin/billing");
+      if (billingRes.ok) {
+        setBilling((await billingRes.json()) as BillingSummary);
+      }
     })();
+  }, [authed]);
+
+  // Returning from a paid Checkout beats the webhook home: Stripe redirects
+  // immediately, the subscription lands seconds later. Poll until it does so
+  // the admin never sees stale "upgrade" buttons after paying.
+  useEffect(() => {
+    if (!authed) return;
+    if (new URLSearchParams(location.search).get("billing") !== "success") return;
+    history.replaceState(null, "", "/admin");
+    setBillingNotice("Payment received — activating your subscription…");
+    let tries = 0;
+    const timer = setInterval(() => {
+      void (async () => {
+        tries += 1;
+        const res = await fetch("/api/admin/billing");
+        if (res.ok) {
+          const b = (await res.json()) as BillingSummary;
+          if (b.status === "active" && !b.canUpgrade) {
+            clearInterval(timer);
+            setBilling(b);
+            setBillingNotice("Subscription active — you're all set.");
+            return;
+          }
+        }
+        if (tries >= 20) {
+          clearInterval(timer);
+          setBillingNotice(
+            "Payment received. Activation is taking longer than usual — " +
+              "refresh in a minute or two; if the plan still looks wrong, contact support.",
+          );
+        }
+      })();
+    }, 3000);
+    return () => clearInterval(timer);
   }, [authed]);
 
   if (!tenant) return null;
@@ -118,6 +177,35 @@ export function Admin() {
   for (const row of usage ?? []) {
     totals.set(row.kind, (totals.get(row.kind) ?? 0) + row.count);
   }
+
+  async function billingRedirect(path: string, body?: unknown) {
+    setBusy(true);
+    setBillingNotice("");
+    try {
+      const res = await fetch(path, {
+        method: "POST",
+        ...(body !== undefined
+          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+          : {}),
+      });
+      const data = (await res.json().catch(() => null)) as { url?: string } | null;
+      if (res.ok && data?.url) {
+        location.assign(data.url);
+      } else {
+        setBillingNotice(
+          `Billing is temporarily unavailable (${res.status}) — try again or contact support.`,
+        );
+        setBusy(false);
+      }
+    } catch {
+      setBillingNotice("Billing is temporarily unavailable — try again or contact support.");
+      setBusy(false);
+    }
+  }
+
+  const trialDaysLeft = billing?.trialEndsAt
+    ? Math.max(0, Math.ceil((billing.trialEndsAt - Date.now()) / 86_400_000))
+    : null;
 
   return (
     <>
@@ -236,6 +324,99 @@ export function Admin() {
           Revoke all sessions
         </button>
       </section>
+
+      {billing && (
+        <section className="card">
+          <h2>Plan &amp; billing</h2>
+          <p className="muted">
+            Current plan: <strong>{PLAN_LABELS[billing.plan]}</strong>
+            {billing.status === "trialing" && trialDaysLeft !== null && (
+              <> — {trialDaysLeft > 0 ? `${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"} left in the trial` : "trial ended"}</>
+            )}
+            {billing.status === "past_due" && <> — payment past due (update your card)</>}
+            {billing.status === "canceled" && <> — subscription canceled</>}
+            {billing.status === "active" && billing.cancelAtPeriodEnd && (
+              <>
+                {" "}— cancels{" "}
+                {billing.currentPeriodEnd
+                  ? `on ${new Date(billing.currentPeriodEnd).toLocaleDateString()}`
+                  : "at the end of the billing period"}
+              </>
+            )}
+          </p>
+          {billing.status === "active" && billing.cancelAtPeriodEnd && (
+            <p className="muted">
+              Your team keeps full access until then. Changed your mind? Renew
+              under "Manage billing".
+            </p>
+          )}
+          {billing.sendingBlocked && (
+            <p className="muted">
+              <strong>Sending is paused for your whole team.</strong> Recipients can
+              still open secrets that were already sent. Subscribe below to
+              reactivate sending.
+            </p>
+          )}
+          {billing.canUpgrade && (
+            <>
+              <label className="muted">
+                <input
+                  type="checkbox"
+                  checked={yearly}
+                  onChange={(e) => setYearly(e.target.checked)}
+                />{" "}
+                Bill yearly — two months free
+              </label>
+              <p>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() =>
+                    void billingRedirect("/api/admin/billing/checkout", {
+                      plan: "team",
+                      interval: yearly ? "yearly" : "monthly",
+                    })
+                  }
+                >
+                  Team — {yearly ? "$490/yr" : "$49/mo"}
+                </button>{" "}
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() =>
+                    void billingRedirect("/api/admin/billing/checkout", {
+                      plan: "business",
+                      interval: yearly ? "yearly" : "monthly",
+                    })
+                  }
+                >
+                  Business — {yearly ? "$990/yr" : "$99/mo"}
+                </button>
+              </p>
+              <p className="muted">
+                Team: branded portal on your subdomain with your own single
+                sign-on. Business: adds a custom domain (like{" "}
+                <code>secrets.yourcompany.com</code>) and priority support.
+              </p>
+            </>
+          )}
+          {billing.canManage && (
+            <button
+              disabled={busy}
+              onClick={() => void billingRedirect("/api/admin/billing/portal")}
+            >
+              Manage billing (invoices, card, cancel)
+            </button>
+          )}
+          {billingNotice && <p className="muted">{billingNotice}</p>}
+          {billing.plan === "partner" && (
+            <p className="muted">
+              Design-partner tenant — no subscription needed. Contact platform
+              support to change plans.
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="card">
         <h2>Usage (last 30 days)</h2>
