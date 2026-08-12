@@ -4,6 +4,7 @@ import { TenantConfigSchema, type TenantConfig } from "./tenant/schema.js";
 import { readValidSession } from "./auth/session.js";
 import { bumpSessionEpoch } from "./auth/epoch.js";
 import { isAdminIdentity } from "./auth/routes.js";
+import { stubFetch } from "./stubfetch.js";
 import {
   billingSummary,
   createCheckoutSession,
@@ -199,7 +200,8 @@ async function usage(url: URL, live: TenantConfig, env: Env): Promise<Response> 
   const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${live.tenantId}`));
   const from = url.searchParams.get("from") ?? "";
   const to = url.searchParams.get("to") ?? "";
-  const res = await stub.fetch(
+  const res = await stubFetch(
+    stub,
     `https://usage/internal/read?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
   );
   return json(res.status, await res.json());

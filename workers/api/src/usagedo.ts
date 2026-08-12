@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { stubFetch } from "./stubfetch.js";
 
 /**
  * Per-tenant runtime state, one instance per tenant (`usage:<tenantId>`):
@@ -126,13 +127,11 @@ export function recordUsage(
   try {
     const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${tenantId}`));
     ctx.waitUntil(
-      stub
-        .fetch("https://usage/internal/increment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind }),
-        })
-        .catch(() => {}),
+      stubFetch(stub, "https://usage/internal/increment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind }),
+      }).catch(() => {}),
     );
   } catch {
     // metering must never break the user path

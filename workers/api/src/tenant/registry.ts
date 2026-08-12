@@ -49,11 +49,30 @@ export async function resolveTenant(
   return resolution;
 }
 
+/**
+ * KV read that never lets an error read as "key absent". Under
+ * vitest/miniflare KV is backed by a Durable Object that can throw a
+ * retryable "invalidated" transient mid-run (production KV can blip too);
+ * mapped to null, that error would — in dev — silently misroute a tenant
+ * host to the public product. Retries, then propagates a real failure.
+ */
+async function kvGetJson(env: Env, key: string, cacheTtl?: number): Promise<unknown> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await env.TENANTS.get(
+        key,
+        cacheTtl ? { type: "json", cacheTtl } : { type: "json" },
+      );
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError;
+}
+
 async function lookup(hostname: string, env: Env): Promise<TenantResolution> {
-  const hostEntry = await env.TENANTS.get(`host:${hostname}`, {
-    type: "json",
-    cacheTtl: KV_CACHE_TTL_S,
-  }).catch(() => null);
+  const hostEntry = await kvGetJson(env, `host:${hostname}`, KV_CACHE_TTL_S);
   const tenantId = (hostEntry as { tenantId?: string } | null)?.tenantId;
   if (!tenantId) {
     return env.ENVIRONMENT === "dev" ? { kind: "public" } : { kind: "unknown" };
@@ -74,10 +93,11 @@ export async function loadTenant(
   env: Env,
   opts: { fresh?: boolean } = {},
 ): Promise<TenantConfig | null> {
-  const raw = await env.TENANTS.get(
+  const raw = await kvGetJson(
+    env,
     `tenant:${tenantId}`,
-    opts.fresh ? { type: "json" } : { type: "json", cacheTtl: KV_CACHE_TTL_S },
-  ).catch(() => null);
+    opts.fresh ? undefined : KV_CACHE_TTL_S,
+  );
   const parsed = TenantConfigSchema.safeParse(raw);
   if (!parsed.success) {
     if (raw !== null) console.error(`Malformed tenant config for ${tenantId}`);

@@ -6,6 +6,8 @@
  * cookie would otherwise remain valid.
  */
 
+import { stubFetch } from "../stubfetch.js";
+
 const EPOCH_CACHE_TTL_MS = 30_000;
 
 const cache = new Map<string, { epoch: string; freshUntil: number }>();
@@ -17,7 +19,8 @@ export function clearEpochCache(): void {
 
 async function fetchEpoch(env: Env, tenantId: string, bump: boolean): Promise<string> {
   const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${tenantId}`));
-  const res = await stub.fetch(
+  const res = await stubFetch(
+    stub,
     bump ? "https://usage/internal/epoch-bump" : "https://usage/internal/epoch",
     bump ? { method: "POST" } : undefined,
   );

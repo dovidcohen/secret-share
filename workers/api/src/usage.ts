@@ -1,5 +1,6 @@
 import { EmailMessage } from "cloudflare:email";
 import { PUBLIC_USAGE_ID } from "./usagedo.js";
+import { stubFetch } from "./stubfetch.js";
 
 /**
  * Free-plan Workers get 100k requests/day; past that, requests fail until
@@ -103,7 +104,8 @@ export async function computePublicDigest(
   const from = isoDay(now - 7 * DAY_MS);
   const to = isoDay(now);
   const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${PUBLIC_USAGE_ID}`));
-  const res = await stub.fetch(
+  const res = await stubFetch(
+    stub,
     `https://usage/internal/read?from=${from}&to=${to}`,
   );
   const days = res.ok

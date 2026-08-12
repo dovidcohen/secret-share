@@ -14,6 +14,7 @@ import { handleAdmin } from "./admin.js";
 import { entitlement, entitlementDenied, handleStripeWebhook } from "./billing.js";
 import { PUBLIC_USAGE_ID, recordUsage } from "./usagedo.js";
 import { sendDailyDigest } from "./usage.js";
+import { stubFetch } from "./stubfetch.js";
 
 export { MailboxDO } from "./mailbox.js";
 export { UsageDO } from "./usagedo.js";
@@ -73,7 +74,8 @@ async function publicStats(request: Request, url: URL, env: Env): Promise<Respon
   const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${PUBLIC_USAGE_ID}`));
   const from = url.searchParams.get("from") ?? "";
   const to = url.searchParams.get("to") ?? "";
-  const res = await stub.fetch(
+  const res = await stubFetch(
+    stub,
     `https://usage/internal/read?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
   );
   return json(res.status, await res.json());
@@ -116,7 +118,7 @@ async function mintTurnCredentials(
   const stub = env.MAILBOX.get(
     env.MAILBOX.idFromName(mailboxDoName(body.data.mailboxId, tenant)),
   );
-  const verify = await stub.fetch("https://mailbox/internal/turn-verify", {
+  const verify = await stubFetch(stub, "https://mailbox/internal/turn-verify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: body.data.turnToken }),
@@ -178,7 +180,7 @@ async function mintGrant(
   const stub = env.MAILBOX.get(
     env.MAILBOX.idFromName(mailboxDoName(body.data.mailboxId, tenant)),
   );
-  const res = await stub.fetch("https://mailbox/internal/grant-create", {
+  const res = await stubFetch(stub, "https://mailbox/internal/grant-create", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ttlSeconds: body.data.ttlSeconds }),
@@ -346,7 +348,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     // One DO instance per mailbox: routing, storage, and signaling all converge here.
     const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxDoName(mailboxId, tenant)));
-    const res = await stub.fetch(forwarded);
+    const res = await stubFetch(stub, forwarded);
 
     // Metered for tenants and the public product alike; the public pool uses
     // a reserved counter id (tenant ids are [a-z0-9-], so no collision).
