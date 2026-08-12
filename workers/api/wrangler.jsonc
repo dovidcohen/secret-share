@@ -60,12 +60,12 @@
     "CF_ACCOUNT_ID": "b1c0bee581e5bd9e6b843bfb9cd1c587",
     "USAGE_ALERT_THRESHOLD": "80000",
     "ALERT_FROM": "alerts@shareasecret.io",
-    // Stripe price ids (not secrets; TEST MODE — replace at go-live via
+    // Stripe price ids (not secrets; LIVE mode as of 2026-08-12 — created by
     // `node scripts/setup-stripe.mjs` with the live key).
-    "STRIPE_PRICE_TEAM_MONTHLY": "price_1U3MlcFE4GlHDZsMeuSi0dZf",
-    "STRIPE_PRICE_TEAM_YEARLY": "price_1U3MldFE4GlHDZsMNn3o3rwV",
-    "STRIPE_PRICE_BUSINESS_MONTHLY": "price_1U3MleFE4GlHDZsMY7nyuDad",
-    "STRIPE_PRICE_BUSINESS_YEARLY": "price_1U3MleFE4GlHDZsMxNqKHlfl"
+    "STRIPE_PRICE_TEAM_MONTHLY": "price_1U3iVrFE4GlHDZsM6JFp3fBb",
+    "STRIPE_PRICE_TEAM_YEARLY": "price_1U3iVsFE4GlHDZsMsUlK53k7",
+    "STRIPE_PRICE_BUSINESS_MONTHLY": "price_1U3iVtFE4GlHDZsMpXr6mU0u",
+    "STRIPE_PRICE_BUSINESS_YEARLY": "price_1U3iVuFE4GlHDZsMTjMHvb7k"
     // Secrets (wrangler secret put): STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET.
   },
   "migrations": [
