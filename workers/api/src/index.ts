@@ -71,11 +71,11 @@ async function publicStats(request: Request, url: URL, env: Env): Promise<Respon
   if (!timingSafeEqual(presented, env.STATS_TOKEN)) {
     return json(401, { error: "AUTH_REQUIRED" });
   }
-  const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${PUBLIC_USAGE_ID}`));
   const from = url.searchParams.get("from") ?? "";
   const to = url.searchParams.get("to") ?? "";
   const res = await stubFetch(
-    stub,
+    env.USAGE,
+    `usage:${PUBLIC_USAGE_ID}`,
     `https://usage/internal/read?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
   );
   return json(res.status, await res.json());
@@ -115,14 +115,16 @@ async function mintTurnCredentials(
   const body = TurnRequestSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ error: "BAD_REQUEST" }, { status: 400 });
 
-  const stub = env.MAILBOX.get(
-    env.MAILBOX.idFromName(mailboxDoName(body.data.mailboxId, tenant)),
+  const verify = await stubFetch(
+    env.MAILBOX,
+    mailboxDoName(body.data.mailboxId, tenant),
+    "https://mailbox/internal/turn-verify",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: body.data.turnToken }),
+    },
   );
-  const verify = await stubFetch(stub, "https://mailbox/internal/turn-verify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: body.data.turnToken }),
-  });
   if (verify.status !== 204) {
     return Response.json({ error: "BAD_TOKEN" }, { status: 403 });
   }
@@ -177,14 +179,16 @@ async function mintGrant(
   const body = CreateGrantRequestSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return json(400, { error: "BAD_REQUEST" });
 
-  const stub = env.MAILBOX.get(
-    env.MAILBOX.idFromName(mailboxDoName(body.data.mailboxId, tenant)),
+  const res = await stubFetch(
+    env.MAILBOX,
+    mailboxDoName(body.data.mailboxId, tenant),
+    "https://mailbox/internal/grant-create",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ttlSeconds: body.data.ttlSeconds }),
+    },
   );
-  const res = await stubFetch(stub, "https://mailbox/internal/grant-create", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ttlSeconds: body.data.ttlSeconds }),
-  });
   if (res.status === 201) recordUsage(env, ctx, tenant.tenantId, "grant_minted");
   return res;
 }
@@ -347,8 +351,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     forwarded.headers.delete("X-Guest-Grant");
 
     // One DO instance per mailbox: routing, storage, and signaling all converge here.
-    const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxDoName(mailboxId, tenant)));
-    const res = await stubFetch(stub, forwarded);
+    const res = await stubFetch(env.MAILBOX, mailboxDoName(mailboxId, tenant), forwarded);
 
     // Metered for tenants and the public product alike; the public pool uses
     // a reserved counter id (tenant ids are [a-z0-9-], so no collision).

@@ -197,11 +197,11 @@ async function uploadLogo(
 
 async function usage(url: URL, live: TenantConfig, env: Env): Promise<Response> {
   if (!env.USAGE) return json(200, { days: [] });
-  const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${live.tenantId}`));
   const from = url.searchParams.get("from") ?? "";
   const to = url.searchParams.get("to") ?? "";
   const res = await stubFetch(
-    stub,
+    env.USAGE,
+    `usage:${live.tenantId}`,
     `https://usage/internal/read?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
   );
   return json(res.status, await res.json());

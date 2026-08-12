@@ -103,9 +103,9 @@ export async function computePublicDigest(
   const yesterday = isoDay(now - DAY_MS);
   const from = isoDay(now - 7 * DAY_MS);
   const to = isoDay(now);
-  const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${PUBLIC_USAGE_ID}`));
   const res = await stubFetch(
-    stub,
+    env.USAGE,
+    `usage:${PUBLIC_USAGE_ID}`,
     `https://usage/internal/read?from=${from}&to=${to}`,
   );
   const days = res.ok

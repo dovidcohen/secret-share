@@ -18,9 +18,9 @@ export function clearEpochCache(): void {
 }
 
 async function fetchEpoch(env: Env, tenantId: string, bump: boolean): Promise<string> {
-  const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${tenantId}`));
   const res = await stubFetch(
-    stub,
+    env.USAGE,
+    `usage:${tenantId}`,
     bump ? "https://usage/internal/epoch-bump" : "https://usage/internal/epoch",
     bump ? { method: "POST" } : undefined,
   );

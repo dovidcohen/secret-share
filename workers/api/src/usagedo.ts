@@ -125,9 +125,8 @@ export function recordUsage(
 ): void {
   if (!env.USAGE) return;
   try {
-    const stub = env.USAGE.get(env.USAGE.idFromName(`usage:${tenantId}`));
     ctx.waitUntil(
-      stubFetch(stub, "https://usage/internal/increment", {
+      stubFetch(env.USAGE, `usage:${tenantId}`, "https://usage/internal/increment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind }),
