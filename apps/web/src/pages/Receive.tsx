@@ -36,6 +36,9 @@ export function Receive({ initialCode }: { initialCode: string }) {
   const [codeInput, setCodeInput] = useState(initialCode);
   const [payload, setPayload] = useState<Payload | null>(null);
   const [fileUrl, setFileUrl] = useState("");
+  // Mirrors fileUrl so unmount/replacement can revoke without stale closures —
+  // an unrevoked object URL keeps the decrypted bytes alive in the document.
+  const fileUrlRef = useRef("");
   const [via, setVia] = useState<"live" | "drop">("drop");
   const [error, setError] = useState("");
   const signalingRef = useRef<Signaling | null>(null);
@@ -53,6 +56,7 @@ export function Receive({ initialCode }: { initialCode: string }) {
     return () => {
       signalingRef.current?.close();
       if (pollRef.current) clearInterval(pollRef.current);
+      if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -212,20 +216,22 @@ export function Receive({ initialCode }: { initialCode: string }) {
     } catch {
       decoded = { kind: "text", text: new TextDecoder().decode(plaintext) };
     }
-    if (decoded.kind === "file") {
-      setFileUrl(
-        URL.createObjectURL(
-          new Blob([decoded.data as BlobPart], { type: "application/octet-stream" }),
-        ),
-      );
-    }
+    if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
+    fileUrlRef.current =
+      decoded.kind === "file"
+        ? URL.createObjectURL(
+            new Blob([decoded.data as BlobPart], { type: "application/octet-stream" }),
+          )
+        : "";
+    setFileUrl(fileUrlRef.current);
     setVia(how);
     setPayload(decoded);
     setPhase("done");
   }
 
   function wipe() {
-    if (fileUrl) URL.revokeObjectURL(fileUrl);
+    if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
+    fileUrlRef.current = "";
     setFileUrl("");
     setPayload(null);
     setPhase("input");

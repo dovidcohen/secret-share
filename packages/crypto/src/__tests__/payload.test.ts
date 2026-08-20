@@ -51,11 +51,30 @@ describe("payload envelope", () => {
     expect(sanitizeFilename("..")).toBe("attachment");
     expect(sanitizeFilename("")).toBe("attachment");
     expect(sanitizeFilename("a\x00b\nc.txt")).toBe("abc.txt");
-    expect(sanitizeFilename("x".repeat(500)).length).toBe(255);
 
     const p = decodePayload(encodeFilePayload("../../up.txt", "text/plain", utf8("x")));
     if (p.kind !== "file") throw new Error("expected file");
     expect(p.name).toBe("up.txt");
+  });
+
+  it("defuses plantable and platform-hostile filenames", () => {
+    // dotfiles can't be planted under their own name
+    expect(sanitizeFilename(".env")).toBe("attachment.env");
+    expect(sanitizeFilename(".npmrc")).toBe("attachment.npmrc");
+    // Windows reserved device names, with and without extension
+    expect(sanitizeFilename("CON")).toBe("attachment-CON");
+    expect(sanitizeFilename("nul.txt")).toBe("attachment-nul.txt");
+    expect(sanitizeFilename("lpt9")).toBe("attachment-lpt9");
+    // trailing dots/spaces (silently eaten or misparsed on Windows)
+    expect(sanitizeFilename("key.txt. . ")).toBe("key.txt");
+    expect(sanitizeFilename(". . .")).toBe("attachment");
+    // bidi/zero-width controls that disguise the real extension
+    expect(sanitizeFilename("evil‮gpj.exe")).toBe("evilgpj.exe");
+    expect(sanitizeFilename("a​﻿b.txt")).toBe("ab.txt");
+    // capped by UTF-8 bytes, not code points, so creation can't fail on length
+    const long = sanitizeFilename("é".repeat(500));
+    expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(160);
+    expect(new TextEncoder().encode(sanitizeFilename("x".repeat(500))).length).toBe(160);
   });
 
   it("rejects truncated or malformed envelopes", () => {

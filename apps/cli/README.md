@@ -6,16 +6,16 @@ The CLI for [shareasecret.io](https://shareasecret.io) — fully interoperable
 with the web app in both directions.
 
 ```sh
-cat id_ed25519 | npx shareasecret@0.2.0 send --ttl 2h
+cat id_ed25519 | npx shareasecret@0.2.1 send --ttl 2h
 # Share code (read-once, speak it or send it over any channel):
 #
 #   XKQ2-M7PT-tiger-ocean-cable-ruby-drum
 
-npx shareasecret@0.2.0 send --file release.jks       # send a small file; its name travels
+npx shareasecret@0.2.1 send --file release.jks       # send a small file; its name travels
                                                      # encrypted and arrives with the bytes
-npx shareasecret@0.2.0 receive --output id_ed25519   # prompts for the code (input hidden),
+npx shareasecret@0.2.1 receive --output id_ed25519   # prompts for the code (input hidden),
                                                      # writes the file 0600, never overwrites
-npx shareasecret@0.2.0 revoke                        # burn before it's read; prompts the same way
+npx shareasecret@0.2.1 revoke                        # burn before it's read; prompts the same way
 ```
 
 Examples pin the version deliberately — pinned invocations run bit-identical,
@@ -52,9 +52,10 @@ shareasecret revoke [<code>]                         burn a drop you sent before
   download under that name (fully interoperable with the web app's attach button)
 - `-o, --output <file>` — receive: create the file `0600` from the first byte
   (no umask window), refuse to overwrite; on Windows the mode is advisory.
-  Receiving a file sent with a name and no `--output` on a terminal saves it
-  under that (sanitized) name in the current directory instead of printing
-  binary; piped output always gets the raw bytes
+  Receiving a named file without `--output` on a terminal asks before saving
+  under the sender's (sanitized) name — decline and it saves under a neutral
+  generated name instead; a sender never silently chooses what appears in
+  your directory. Piped output always gets the raw bytes
 - Codes as arguments land in shell history and the process list — omit the code
   and `receive`/`revoke` prompt for it without echoing (scripts: pipe it to stdin)
 - stderr never duplicates the code: when stdout is captured

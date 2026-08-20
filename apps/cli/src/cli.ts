@@ -1,5 +1,6 @@
-import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
-import { basename } from "node:path";
+import { closeSync, fstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
   CodeFormatError,
@@ -11,8 +12,10 @@ import {
   formatCode,
   generateCode,
   parseCode,
+  randomBytes,
   sanitizeFilename,
   SecretTooLargeError,
+  toB64url,
 } from "@secret-share/crypto";
 import { DEFAULT_TTL_SECONDS, MAX_SECRET_BYTES } from "@secret-share/protocol";
 import { version } from "../package.json";
@@ -200,13 +203,26 @@ async function send(server: string, ttl: string | undefined, json: boolean, file
 
   let plaintext: Uint8Array;
   if (filePath !== undefined) {
-    let data: Uint8Array;
+    let fh: number;
     try {
-      data = new Uint8Array(readFileSync(filePath));
+      fh = openSync(filePath, "r");
     } catch (e) {
       fail(`cannot read ${filePath}: ${(e as NodeJS.ErrnoException).message}`, EXIT.error);
     }
-    if (data.length === 0) fail(`nothing to send — ${filePath} is empty`, EXIT.usage);
+    let data: Uint8Array;
+    try {
+      // fstat the open fd (no TOCTOU): refuse devices/FIFOs, and check the
+      // size before reading so a mis-picked large file never fills memory.
+      const st = fstatSync(fh);
+      if (!st.isFile()) fail(`cannot send ${filePath}: not a regular file`, EXIT.usage);
+      if (st.size === 0) fail(`nothing to send — ${filePath} is empty`, EXIT.usage);
+      if (st.size > MAX_SECRET_BYTES) {
+        fail(`${filePath} exceeds ${MAX_SECRET_BYTES} bytes (10 KB)`, EXIT.tooLarge);
+      }
+      data = new Uint8Array(readFileSync(fh));
+    } finally {
+      closeSync(fh);
+    }
     plaintext = encodeFilePayload(basename(filePath), "application/octet-stream", data);
     if (plaintext.length > MAX_SECRET_BYTES) {
       fail(`${filePath} exceeds ${MAX_SECRET_BYTES} bytes (10 KB) with metadata`, EXIT.tooLarge);
@@ -333,17 +349,8 @@ async function receive(server: string, positionals: string[], output: string | u
   }
 
   if (fd === undefined && fileName !== null && process.stdout.isTTY) {
-    // A file arrived without --output on a terminal. The drop is burned, so
-    // the bytes must land somewhere — save under the sender's (sanitized)
-    // name in the current directory, never overwriting.
-    const saved = writeToUnusedName(fileName, outBytes);
-    if (saved !== null) {
-      process.stderr.write(`Saved ${outBytes.length} bytes to ${saved} (mode 0600).\n`);
-      return;
-    }
-    process.stderr.write(
-      `warning: could not create a file for "${fileName}" here — writing raw bytes to stdout\n`,
-    );
+    await saveAttachment(fileName, outBytes);
+    return;
   }
 
   if (fd !== undefined) {
@@ -386,30 +393,85 @@ async function receive(server: string, positionals: string[], output: string | u
 }
 
 /**
- * Lands received bytes under the sender's filename without overwriting
- * anything: name, then "name (1)", "name (2)"... Returns the path used, or
- * null if 50 candidates already exist (caller falls back to stdout).
+ * A file arrived without --output on a terminal. Dumping binary into the
+ * scrollback helps nobody — but the sender must not get to choose what
+ * appears in this directory either (.env, .npmrc, package.json...). So the
+ * wire name is only used after the user approves the exact absolute path;
+ * otherwise the file lands under a locally generated neutral name. The drop
+ * is already burned, so every path here keeps the bytes recoverable, and
+ * none of them falls through to stdout without asking.
  */
-function writeToUnusedName(name: string, bytes: Uint8Array): string | null {
-  const safe = sanitizeFilename(name);
-  const dot = safe.lastIndexOf(".");
-  const [stem, ext] = dot > 0 ? [safe.slice(0, dot), safe.slice(dot)] : [safe, ""];
-  for (let n = 0; n < 50; n++) {
-    const candidate = n === 0 ? safe : `${stem} (${n})${ext}`;
-    let fd: number;
-    try {
-      fd = openSync(candidate, "wx", 0o600);
-    } catch {
-      continue;
+async function saveAttachment(senderName: string, bytes: Uint8Array): Promise<void> {
+  const safe = sanitizeFilename(senderName);
+  const generated = `secret-${toB64url(randomBytes(5))}.bin`;
+
+  const attempts: string[] = [];
+  if (
+    process.stdin.isTTY &&
+    (await confirmOnTty(`Sender attached a file. Save as ${resolve(safe)}? [y/N] `))
+  ) {
+    attempts.push(resolve(safe));
+  }
+  attempts.push(resolve(generated), join(tmpdir(), generated));
+
+  for (const target of attempts) {
+    const err = writeExclusive(target, bytes);
+    if (err === null) {
+      process.stderr.write(
+        `Saved ${bytes.length} bytes to ${target} (sender named it "${safe}") (mode 0600).\n`,
+      );
+      return;
     }
+    process.stderr.write(`could not write ${target}: ${err}\n`);
+  }
+
+  // Nowhere writable. Disclosure to this terminal is the only way left to not
+  // lose the burned drop — never automatic if we can ask, and base64 so
+  // hostile bytes can't drive the terminal with escape sequences.
+  if (
+    process.stdin.isTTY &&
+    !(await confirmOnTty("No file could be written. Print the data as base64 instead? [y/N] "))
+  ) {
+    fail("attachment discarded at your request — the drop was already consumed", EXIT.error);
+  }
+  process.stderr.write("Base64 of the attachment follows (decode with: base64 -d):\n");
+  process.stdout.write(`${Buffer.from(bytes).toString("base64")}\n`);
+}
+
+/**
+ * Exclusive, complete write: never overwrites, never leaves a partial file
+ * behind (the bytes stay in memory for the caller's next candidate).
+ * Returns null on success or the error message.
+ */
+function writeExclusive(path: string, bytes: Uint8Array): string | null {
+  let fd: number;
+  try {
+    fd = openSync(path, "wx", 0o600);
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).message;
+  }
+  try {
     let written = 0;
     while (written < bytes.length) {
-      written += writeSync(fd, bytes, written, bytes.length - written);
+      const n = writeSync(fd, bytes, written, bytes.length - written);
+      if (n <= 0) throw new Error("write made no progress");
+      written += n;
     }
     closeSync(fd);
-    return candidate;
+    return null;
+  } catch (e) {
+    try {
+      closeSync(fd);
+    } catch {
+      /* best effort — the unlink below is what matters */
+    }
+    try {
+      unlinkSync(path);
+    } catch {
+      /* partial file may remain on a dying disk; the caller still has the bytes */
+    }
+    return (e as Error).message;
   }
-  return null;
 }
 
 async function revoke(server: string, positionals: string[]) {

@@ -22,7 +22,8 @@ import { concatBytes, utf8 } from "./encoding.js";
 export const PAYLOAD_MAGIC = new Uint8Array([0x00, 0x73, 0x73, 0x66, 0x01]);
 
 const META_LEN_BYTES = 2;
-export const MAX_FILENAME_CHARS = 255;
+/** Filesystems cap names at 255 bytes; stay well under so creation can't fail on length. */
+export const MAX_FILENAME_BYTES = 160;
 
 export class PayloadFormatError extends Error {
   override name = "PayloadFormatError";
@@ -43,15 +44,29 @@ export interface TextPayload {
 export type Payload = FilePayload | TextPayload;
 
 /**
- * Strips directory components and control characters — the name arrives from
- * the other side of the wire and ends up in a download attribute or on disk.
+ * The name arrives from the other side of the wire and ends up in a download
+ * attribute or on disk, so strip everything that lets it lie or misbehave:
+ * directory components, ASCII controls, zero-width/bidi format characters
+ * (which can visually disguise an extension), Windows-eaten trailing dots and
+ * spaces, reserved device names (CON, NUL, COM1...), and leading dots (no
+ * planted dotfiles). Capped by UTF-8 bytes so file creation can't fail on
+ * filesystem name-length limits.
  */
 export function sanitizeFilename(name: string): string {
   const base = name.split(/[/\\]/).pop() ?? "";
-  // eslint-disable-next-line no-control-regex
-  const clean = base.replace(/[\x00-\x1f\x7f]/g, "").trim();
-  const capped = [...clean].slice(0, MAX_FILENAME_CHARS).join("");
-  return capped === "" || capped === "." || capped === ".." ? "attachment" : capped;
+  let clean = base
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, "")
+    .trim()
+    .replace(/[. ]+$/, "");
+  const chars = [...clean];
+  while (chars.length > 0 && utf8(chars.join("")).length > MAX_FILENAME_BYTES) chars.pop();
+  clean = chars.join("");
+  if (clean === "") return "attachment";
+  if (clean.startsWith(".")) clean = `attachment${clean}`;
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(clean)) clean = `attachment-${clean}`;
+  return clean;
 }
 
 /** Envelope size for a file of `dataLength` bytes — lets UIs show limits up front. */
