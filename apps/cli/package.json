@@ -1,6 +1,6 @@
 {
   "name": "shareasecret",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Share a small secret with exactly one person. End-to-end encrypted, read-once, auto-expiring — shareasecret.io from the terminal.",
   "license": "SEE LICENSE IN README.md",
   "homepage": "https://shareasecret.io",

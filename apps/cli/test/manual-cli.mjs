@@ -2,7 +2,7 @@
 // Usage: node apps/cli/test/manual-cli.mjs [server]
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, dirname, join as pjoin } from "node:path";
 import { tmpdir } from "node:os";
@@ -96,6 +96,33 @@ try {
   check("drop survives failed --output", survived.status === 0 && survived.stdout.toString() === "second");
 } finally {
   if (existsSync(outFile)) rmSync(outFile);
+}
+
+// send --file: envelope round-trips, piped receive yields the raw file bytes
+const fileBytes = randomBytes(4096);
+const filePath = pjoin(tmpdir(), `sas-file-${Date.now()}.jks`);
+const fileOut = pjoin(tmpdir(), `sas-file-out-${Date.now()}.jks`);
+try {
+  writeFileSync(filePath, fileBytes);
+  const fsent = cli(["send", "--file", filePath, "--json", "--ttl", "5m"]);
+  check("send --file exits 0", fsent.status === 0);
+  const fcode = JSON.parse(fsent.stdout.toString()).code;
+  const fgot = cli(["receive", fcode]);
+  check("piped receive of a file yields raw bytes", fgot.status === 0 && fgot.stdout.equals(fileBytes));
+
+  const fsent2 = cli(["send", "--file", filePath, "--json", "--ttl", "5m"]);
+  const fwrote = cli2(["receive", JSON.parse(fsent2.stdout.toString()).code, "--output", fileOut]);
+  check("receive --output unwraps the file envelope", fwrote.status === 0 && readFileSync(fileOut).equals(fileBytes));
+  check("--output reports the sender's filename", fwrote.stderr.toString().includes("sender named it"));
+
+  check("send --file missing path exits 1", cli(["send", "--file", pjoin(tmpdir(), "no-such-sas-file")]).status === 1);
+  const big = pjoin(tmpdir(), `sas-big-${Date.now()}.bin`);
+  writeFileSync(big, Buffer.alloc(10_300));
+  check("send --file oversize exits 6", cli(["send", "--file", big]).status === 6);
+  rmSync(big);
+} finally {
+  if (existsSync(filePath)) rmSync(filePath);
+  if (existsSync(fileOut)) rmSync(fileOut);
 }
 
 // code on stdin instead of argv (keeps it out of history/process list)

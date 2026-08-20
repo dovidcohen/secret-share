@@ -118,8 +118,10 @@ export function Faq() {
       <details>
         <summary>How big can a secret be, and what should I use this for?</summary>
         <p>
-          Up to 10&nbsp;KB of text — SSH keys, API tokens, passwords, connection
-          strings, recovery codes. It is not a file-sharing tool, and it is
+          Up to 10&nbsp;KB — SSH keys, API tokens, passwords, connection strings,
+          recovery codes, either pasted as text or attached as a small file
+          (keystores, certificates, key files). The receiver gets the file back
+          under its original name. It is not a general file-sharing tool, and it is
           deliberately one-sender-to-one-receiver: read the code over a call or send
           the link over any channel you already trust.
         </p>

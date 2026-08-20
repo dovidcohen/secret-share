@@ -1,13 +1,17 @@
-import { closeSync, openSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { basename } from "node:path";
 import { parseArgs } from "node:util";
 import {
   CodeFormatError,
+  decodePayload,
   decryptSecret,
   deriveKeys,
+  encodeFilePayload,
   encryptSecret,
   formatCode,
   generateCode,
   parseCode,
+  sanitizeFilename,
   SecretTooLargeError,
 } from "@secret-share/crypto";
 import { DEFAULT_TTL_SECONDS, MAX_SECRET_BYTES } from "@secret-share/protocol";
@@ -41,13 +45,16 @@ const USAGE = `shareasecret — read-once, end-to-end encrypted secret sharing (
 
 Usage:
   shareasecret send [--ttl <duration>] [--json]       read secret from stdin, print share code
+  shareasecret send --file <path> [--ttl] [--json]    send a small file with its name attached
   shareasecret receive [<code>] [--output <file>]     claim the secret (code, link, or omit to be prompted)
   shareasecret revoke [<code>]                        burn a drop you sent before it is read
 
 Options:
   --ttl <duration>     expiry for send: 90s, 30m, 2h, 1d (min 60s, max 7d, default 1d)
   --json               machine-readable output on stdout (send only)
+  -f, --file <path>    send: attach this file instead of reading stdin (name travels encrypted)
   -o, --output <file>  receive: write the secret to <file>, created 0600, never overwritten
+                       (a file sent with --file or the web attaches saves under its own name)
   --server <url>       API origin (or SHAREASECRET_SERVER; default ${DEFAULT_SERVER})
   -h, --help           show this help
   -v, --version        print version
@@ -60,6 +67,7 @@ process list; omit it and shareasecret prompts for it without echoing.
 
 Examples:
   cat id_ed25519 | shareasecret send --ttl 2h
+  shareasecret send --file release.jks --ttl 2h   # receiver gets the filename too
   shareasecret receive --output id_ed25519        # prompts for the code, no echo
   shareasecret receive XKQ2-M7PT-tiger-ocean-cable-ruby-drum > note.txt
 
@@ -179,7 +187,7 @@ async function resolveCode(positionals: string[]): Promise<ReturnType<typeof par
   return parseCodeInput(raw);
 }
 
-async function send(server: string, ttl: string | undefined, json: boolean) {
+async function send(server: string, ttl: string | undefined, json: boolean, filePath?: string) {
   let ttlSeconds = DEFAULT_TTL_SECONDS;
   if (ttl !== undefined) {
     try {
@@ -190,8 +198,23 @@ async function send(server: string, ttl: string | undefined, json: boolean) {
     }
   }
 
-  const plaintext = await readStdin();
-  if (plaintext.length === 0) fail("nothing to send — stdin was empty", EXIT.usage);
+  let plaintext: Uint8Array;
+  if (filePath !== undefined) {
+    let data: Uint8Array;
+    try {
+      data = new Uint8Array(readFileSync(filePath));
+    } catch (e) {
+      fail(`cannot read ${filePath}: ${(e as NodeJS.ErrnoException).message}`, EXIT.error);
+    }
+    if (data.length === 0) fail(`nothing to send — ${filePath} is empty`, EXIT.usage);
+    plaintext = encodeFilePayload(basename(filePath), "application/octet-stream", data);
+    if (plaintext.length > MAX_SECRET_BYTES) {
+      fail(`${filePath} exceeds ${MAX_SECRET_BYTES} bytes (10 KB) with metadata`, EXIT.tooLarge);
+    }
+  } else {
+    plaintext = await readStdin();
+    if (plaintext.length === 0) fail("nothing to send — stdin was empty", EXIT.usage);
+  }
 
   // 40-bit mailbox ids can collide with a live drop; a fresh code fixes it.
   for (let attempt = 0; ; attempt++) {
@@ -294,13 +317,42 @@ async function receive(server: string, positionals: string[], output: string | u
     throw e;
   }
 
+  // A file envelope (sent with --file, or the web's attach button) carries the
+  // sender's filename; anything else passes through byte-for-byte as before.
+  let fileName: string | null = null;
+  let outBytes = plaintext;
+  try {
+    const payload = decodePayload(plaintext);
+    if (payload.kind === "file") {
+      fileName = payload.name;
+      outBytes = payload.data;
+    }
+  } catch {
+    // Malformed envelope — the drop is already burned, so emit the raw bytes
+    // rather than lose them.
+  }
+
+  if (fd === undefined && fileName !== null && process.stdout.isTTY) {
+    // A file arrived without --output on a terminal. The drop is burned, so
+    // the bytes must land somewhere — save under the sender's (sanitized)
+    // name in the current directory, never overwriting.
+    const saved = writeToUnusedName(fileName, outBytes);
+    if (saved !== null) {
+      process.stderr.write(`Saved ${outBytes.length} bytes to ${saved} (mode 0600).\n`);
+      return;
+    }
+    process.stderr.write(
+      `warning: could not create a file for "${fileName}" here — writing raw bytes to stdout\n`,
+    );
+  }
+
   if (fd !== undefined) {
     // writeSync may write fewer bytes than the buffer holds — loop until
     // every byte lands, or a truncated credential would pass as success.
     let written = 0;
     try {
-      while (written < plaintext.length) {
-        written += writeSync(fd, plaintext, written, plaintext.length - written);
+      while (written < outBytes.length) {
+        written += writeSync(fd, outBytes, written, outBytes.length - written);
       }
       closeSync(fd);
     } catch (e) {
@@ -314,22 +366,50 @@ async function receive(server: string, positionals: string[], output: string | u
       }
       process.stderr.write(
         `error: writing ${output} failed after the drop was claimed (${(e as Error).message}); ` +
-          `${written} of ${plaintext.length} bytes were written and left in place (mode 0600)\n`,
+          `${written} of ${outBytes.length} bytes were written and left in place (mode 0600)\n`,
       );
       if (process.stdin.isTTY && (await confirmOnTty("Print the secret to stdout instead? [y/N] "))) {
-        process.stdout.write(plaintext);
-        if (process.stdout.isTTY && plaintext.at(-1) !== 0x0a) process.stdout.write("\n");
+        process.stdout.write(outBytes);
+        if (process.stdout.isTTY && outBytes.at(-1) !== 0x0a) process.stdout.write("\n");
       }
       process.exitCode = EXIT.error;
       return;
     }
-    process.stderr.write(`Wrote ${plaintext.length} bytes to ${output} (mode 0600).\n`);
+    const origin = fileName !== null ? ` (sender named it ${fileName})` : "";
+    process.stderr.write(`Wrote ${outBytes.length} bytes to ${output}${origin} (mode 0600).\n`);
     return;
   }
 
-  process.stdout.write(plaintext);
+  process.stdout.write(outBytes);
   // Keep a TTY prompt tidy without altering piped bytes.
-  if (process.stdout.isTTY && plaintext.at(-1) !== 0x0a) process.stdout.write("\n");
+  if (process.stdout.isTTY && outBytes.at(-1) !== 0x0a) process.stdout.write("\n");
+}
+
+/**
+ * Lands received bytes under the sender's filename without overwriting
+ * anything: name, then "name (1)", "name (2)"... Returns the path used, or
+ * null if 50 candidates already exist (caller falls back to stdout).
+ */
+function writeToUnusedName(name: string, bytes: Uint8Array): string | null {
+  const safe = sanitizeFilename(name);
+  const dot = safe.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [safe.slice(0, dot), safe.slice(dot)] : [safe, ""];
+  for (let n = 0; n < 50; n++) {
+    const candidate = n === 0 ? safe : `${stem} (${n})${ext}`;
+    let fd: number;
+    try {
+      fd = openSync(candidate, "wx", 0o600);
+    } catch {
+      continue;
+    }
+    let written = 0;
+    while (written < bytes.length) {
+      written += writeSync(fd, bytes, written, bytes.length - written);
+    }
+    closeSync(fd);
+    return candidate;
+  }
+  return null;
 }
 
 async function revoke(server: string, positionals: string[]) {
@@ -347,6 +427,7 @@ function parseCliArgs() {
       options: {
         ttl: { type: "string" },
         json: { type: "boolean", default: false },
+        file: { type: "string", short: "f" },
         output: { type: "string", short: "o" },
         server: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
@@ -380,7 +461,7 @@ async function main() {
 
   switch (command) {
     case "send":
-      return send(server, values.ttl, values.json);
+      return send(server, values.ttl, values.json, values.file);
     case "receive":
     case "recv":
       return receive(server, rest, values.output);

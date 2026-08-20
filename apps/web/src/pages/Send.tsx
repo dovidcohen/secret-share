@@ -7,7 +7,9 @@ import {
 } from "@secret-share/protocol";
 import {
   deriveKeys,
+  encodeFilePayload,
   encryptSecret,
+  filePayloadOverhead,
   generateCode,
   utf8,
   type DerivedKeys,
@@ -43,6 +45,7 @@ export function Send() {
   const [phase, setPhase] = useState<Phase>("compose");
   const [live, setLive] = useState<LiveStatus>("parked");
   const [secret, setSecret] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [ttl, setTtl] = useState(DEFAULT_TTL_SECONDS);
   const [liveOnly, setLiveOnly] = useState(false);
   const [code, setCode] = useState("");
@@ -54,7 +57,11 @@ export function Send() {
   });
   const keysRef = useRef<DerivedKeys | null>(null);
 
-  const bytes = new TextEncoder().encode(secret).length;
+  // Attachments ride inside the same encrypted payload; the envelope's few
+  // metadata bytes count against the limit too, so the meter never lies.
+  const bytes = file
+    ? filePayloadOverhead(file.name, file.type || "application/octet-stream") + file.size
+    : new TextEncoder().encode(secret).length;
   const tooBig = bytes > MAX_SECRET_BYTES;
 
   useEffect(() => () => sessionRef.current.signaling?.close(), []);
@@ -72,7 +79,13 @@ export function Send() {
     setPhase("sealing");
     setError("");
     try {
-      const plaintext = utf8(secret);
+      const plaintext = file
+        ? encodeFilePayload(
+            file.name,
+            file.type || "application/octet-stream",
+            new Uint8Array(await file.arrayBuffer()),
+          )
+        : utf8(secret);
       let keys: DerivedKeys | null = null;
       let shareCode = "";
 
@@ -224,11 +237,39 @@ export function Send() {
         <textarea
           autoFocus
           rows={8}
-          placeholder="Paste an SSH key, API token, password..."
+          placeholder="Paste an SSH key, API token, password... or attach a file below"
           value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          disabled={phase === "sealing"}
+          onChange={(e) => {
+            setSecret(e.target.value);
+            if (e.target.value) setFile(null);
+          }}
+          disabled={phase === "sealing" || !!file}
         />
+        <div className="row">
+          <label className="muted">
+            {file ? (
+              <>
+                {file.name} ({(file.size / 1024).toFixed(1)} KiB){" "}
+                <button disabled={phase === "sealing"} onClick={() => setFile(null)}>
+                  ✕ remove
+                </button>
+              </>
+            ) : (
+              <>
+                or attach a small file (key, keystore, cert...):{" "}
+                <input
+                  type="file"
+                  disabled={phase === "sealing"}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    setFile(f);
+                    if (f) setSecret("");
+                  }}
+                />
+              </>
+            )}
+          </label>
+        </div>
         <div className="row">
           <span className={tooBig ? "danger" : "muted"}>
             {bytes.toLocaleString()} / {MAX_SECRET_BYTES.toLocaleString()} bytes
@@ -257,7 +298,7 @@ export function Send() {
         </label>
         <button
           className="primary"
-          disabled={!secret || tooBig || phase === "sealing" || checkingSession}
+          disabled={(!secret && !file) || tooBig || phase === "sealing" || checkingSession}
           onClick={() => void share()}
         >
           {phase === "sealing"

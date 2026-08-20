@@ -3,7 +3,9 @@ import { DEFAULT_TTL_SECONDS, MAX_SECRET_BYTES } from "@secret-share/protocol";
 import {
   CodeFormatError,
   deriveKeys,
+  encodeFilePayload,
   encryptSecret,
+  filePayloadOverhead,
   parseCode,
   utf8,
   type ShareCode,
@@ -23,6 +25,7 @@ export function Give({ params }: { params: { grant: string; code: string } | nul
   const tenant = useTenant();
   const [phase, setPhase] = useState<Phase>("compose");
   const [secret, setSecret] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [fatal, setFatal] = useState(false);
 
@@ -36,7 +39,9 @@ export function Give({ params }: { params: { grant: string; code: string } | nul
   }, [params]);
 
   const name = tenant?.name ?? "The requester";
-  const bytes = new TextEncoder().encode(secret).length;
+  const bytes = file
+    ? filePayloadOverhead(file.name, file.type || "application/octet-stream") + file.size
+    : new TextEncoder().encode(secret).length;
   const tooBig = bytes > MAX_SECRET_BYTES;
 
   if (!params || !code) {
@@ -57,9 +62,17 @@ export function Give({ params }: { params: { grant: string; code: string } | nul
     setError("");
     try {
       const keys = await deriveKeys(code, tenant?.tenantId);
-      const blob = await encryptSecret(keys, utf8(secret));
+      const plaintext = file
+        ? encodeFilePayload(
+            file.name,
+            file.type || "application/octet-stream",
+            new Uint8Array(await file.arrayBuffer()),
+          )
+        : utf8(secret);
+      const blob = await encryptSecret(keys, plaintext);
       await parkDrop(keys, blob, DEFAULT_TTL_SECONDS, { grant: params.grant });
       setSecret("");
+      setFile(null);
       setPhase("done");
     } catch (e) {
       if (e instanceof GrantRejectedError) {
@@ -100,11 +113,39 @@ export function Give({ params }: { params: { grant: string; code: string } | nul
       <textarea
         autoFocus
         rows={8}
-        placeholder="Paste the password, key, or other secret here..."
+        placeholder="Paste the password, key, or other secret here... or attach a file below"
         value={secret}
-        onChange={(e) => setSecret(e.target.value)}
-        disabled={phase === "sending" || fatal}
+        onChange={(e) => {
+          setSecret(e.target.value);
+          if (e.target.value) setFile(null);
+        }}
+        disabled={phase === "sending" || fatal || !!file}
       />
+      <div className="row">
+        <label className="muted">
+          {file ? (
+            <>
+              {file.name} ({(file.size / 1024).toFixed(1)} KiB){" "}
+              <button disabled={phase === "sending"} onClick={() => setFile(null)}>
+                ✕ remove
+              </button>
+            </>
+          ) : (
+            <>
+              or attach a small file (key, keystore, cert...):{" "}
+              <input
+                type="file"
+                disabled={phase === "sending" || fatal}
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setFile(f);
+                  if (f) setSecret("");
+                }}
+              />
+            </>
+          )}
+        </label>
+      </div>
       <div className="row">
         <span className={tooBig ? "danger" : "muted"}>
           {bytes.toLocaleString()} / {MAX_SECRET_BYTES.toLocaleString()} bytes
@@ -113,7 +154,7 @@ export function Give({ params }: { params: { grant: string; code: string } | nul
       {error && <p className="danger">{error}</p>}
       <button
         className="primary"
-        disabled={!secret || tooBig || phase === "sending" || fatal}
+        disabled={(!secret && !file) || tooBig || phase === "sending" || fatal}
         onClick={() => void send()}
       >
         {phase === "sending" ? "Encrypting & sending…" : "Encrypt & send"}

@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { LIVE_TIMEOUT_MS } from "@secret-share/protocol";
 import {
   CodeFormatError,
+  decodePayload,
   decryptSecret,
   deriveKeys,
   parseCode,
   type DerivedKeys,
+  type Payload,
 } from "@secret-share/crypto";
 import {
   BadTagError,
@@ -32,7 +34,8 @@ export function Receive({ initialCode }: { initialCode: string }) {
   const tenant = useTenant();
   const [phase, setPhase] = useState<Phase>("input");
   const [codeInput, setCodeInput] = useState(initialCode);
-  const [secret, setSecret] = useState("");
+  const [payload, setPayload] = useState<Payload | null>(null);
+  const [fileUrl, setFileUrl] = useState("");
   const [via, setVia] = useState<"live" | "drop">("drop");
   const [error, setError] = useState("");
   const signalingRef = useRef<Signaling | null>(null);
@@ -66,7 +69,7 @@ export function Receive({ initialCode }: { initialCode: string }) {
         try {
           const blob = await claimDrop(keys);
           if (pollRef.current) clearInterval(pollRef.current);
-          finish(new TextDecoder().decode(await decryptSecret(keys, blob)), "drop");
+          finish(await decryptSecret(keys, blob), "drop");
         } catch (e) {
           if (e instanceof DropGoneError) {
             if (pollRef.current) clearInterval(pollRef.current);
@@ -115,7 +118,7 @@ export function Receive({ initialCode }: { initialCode: string }) {
     if (state.peerPresent) {
       const got = await tryLive(signaling, keys);
       if (got !== null) {
-        finish(new TextDecoder().decode(got), "live");
+        finish(got, "live");
         return;
       }
       // Live failed — the claim surfaces the truth either way: the ciphertext,
@@ -133,7 +136,7 @@ export function Receive({ initialCode }: { initialCode: string }) {
     // reads differently from "nothing here yet".
     try {
       const blob = await claimDrop(keys);
-      finish(new TextDecoder().decode(await decryptSecret(keys, blob)), "drop");
+      finish(await decryptSecret(keys, blob), "drop");
       return;
     } catch (e) {
       if (e instanceof DropGoneError) {
@@ -152,7 +155,7 @@ export function Receive({ initialCode }: { initialCode: string }) {
           setPhase("live");
           try {
             const got = await tryLive(signaling, keys);
-            if (got !== null) finish(new TextDecoder().decode(got), "live");
+            if (got !== null) finish(got, "live");
             else await claim(keys); // sender may have parked it just now
           } finally {
             liveBusyRef.current = false;
@@ -181,8 +184,7 @@ export function Receive({ initialCode }: { initialCode: string }) {
     setPhase("claiming");
     try {
       const blob = await claimDrop(keys);
-      const plaintext = await decryptSecret(keys, blob);
-      finish(new TextDecoder().decode(plaintext), "drop");
+      finish(await decryptSecret(keys, blob), "drop");
     } catch (e) {
       if (e instanceof DropGoneError) {
         setError("This secret was already retrieved, destroyed, or has expired.");
@@ -199,12 +201,35 @@ export function Receive({ initialCode }: { initialCode: string }) {
     }
   }
 
-  function finish(text: string, how: "live" | "drop") {
+  function finish(plaintext: Uint8Array, how: "live" | "drop") {
     if (pollRef.current) clearInterval(pollRef.current);
     signalingRef.current?.close();
+    // The payload is already claimed and burned — a decode failure here must
+    // still show SOMETHING, so fall back to rendering the bytes as text.
+    let decoded: Payload;
+    try {
+      decoded = decodePayload(plaintext);
+    } catch {
+      decoded = { kind: "text", text: new TextDecoder().decode(plaintext) };
+    }
+    if (decoded.kind === "file") {
+      setFileUrl(
+        URL.createObjectURL(
+          new Blob([decoded.data as BlobPart], { type: "application/octet-stream" }),
+        ),
+      );
+    }
     setVia(how);
-    setSecret(text);
+    setPayload(decoded);
     setPhase("done");
+  }
+
+  function wipe() {
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+    setFileUrl("");
+    setPayload(null);
+    setPhase("input");
+    setCodeInput("");
   }
 
   if (phase === "done") {
@@ -216,17 +241,20 @@ export function Receive({ initialCode }: { initialCode: string }) {
             ? "Transferred directly from the sender's browser — it never touched the server."
             : "Retrieved and destroyed — the server copy no longer exists."}
         </p>
-        <pre className="secret">{secret}</pre>
+        {payload?.kind === "file" ? (
+          <p>
+            <a href={fileUrl} download={payload.name}>
+              <button className="primary">
+                Save {payload.name} ({(payload.data.length / 1024).toFixed(1)} KiB)
+              </button>
+            </a>
+          </p>
+        ) : (
+          <pre className="secret">{payload?.text ?? ""}</pre>
+        )}
         <div className="row">
-          <CopyButton text={secret} label="Copy secret" />
-          <button
-            className="danger-outline"
-            onClick={() => {
-              setSecret("");
-              setPhase("input");
-              setCodeInput("");
-            }}
-          >
+          {payload?.kind !== "file" && <CopyButton text={payload?.text ?? ""} label="Copy secret" />}
+          <button className="danger-outline" onClick={wipe}>
             Wipe from screen
           </button>
         </div>

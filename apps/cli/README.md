@@ -6,14 +6,16 @@ The CLI for [shareasecret.io](https://shareasecret.io) — fully interoperable
 with the web app in both directions.
 
 ```sh
-cat id_ed25519 | npx shareasecret@0.1.5 send --ttl 2h
+cat id_ed25519 | npx shareasecret@0.2.0 send --ttl 2h
 # Share code (read-once, speak it or send it over any channel):
 #
 #   XKQ2-M7PT-tiger-ocean-cable-ruby-drum
 
-npx shareasecret@0.1.5 receive --output id_ed25519   # prompts for the code (input hidden),
+npx shareasecret@0.2.0 send --file release.jks       # send a small file; its name travels
+                                                     # encrypted and arrives with the bytes
+npx shareasecret@0.2.0 receive --output id_ed25519   # prompts for the code (input hidden),
                                                      # writes the file 0600, never overwrites
-npx shareasecret@0.1.5 revoke                        # burn before it's read; prompts the same way
+npx shareasecret@0.2.0 revoke                        # burn before it's read; prompts the same way
 ```
 
 Examples pin the version deliberately — pinned invocations run bit-identical,
@@ -38,14 +40,21 @@ secret, and neither can anyone without the exact code.
 
 ```
 shareasecret send [--ttl <duration>] [--json]        read secret from stdin, print share code
+shareasecret send --file <path> [--ttl] [--json]     send a small file with its name attached
 shareasecret receive [<code|link>] [-o <file>]       claim the secret (omit code to be prompted)
 shareasecret revoke [<code>]                         burn a drop you sent before it is read
 ```
 
 - `--ttl` — expiry: `90s`, `30m`, `2h`, `1d` (min 60s, max 7d, default 1d)
 - `--json` — machine-readable `{code, link, expiresAt, ttlSeconds}` on stdout
+- `-f, --file <path>` — send this file instead of reading stdin; the filename
+  rides inside the encrypted payload, and the web receive page offers it as a
+  download under that name (fully interoperable with the web app's attach button)
 - `-o, --output <file>` — receive: create the file `0600` from the first byte
-  (no umask window), refuse to overwrite; on Windows the mode is advisory
+  (no umask window), refuse to overwrite; on Windows the mode is advisory.
+  Receiving a file sent with a name and no `--output` on a terminal saves it
+  under that (sanitized) name in the current directory instead of printing
+  binary; piped output always gets the raw bytes
 - Codes as arguments land in shell history and the process list — omit the code
   and `receive`/`revoke` prompt for it without echoing (scripts: pipe it to stdin)
 - stderr never duplicates the code: when stdout is captured
